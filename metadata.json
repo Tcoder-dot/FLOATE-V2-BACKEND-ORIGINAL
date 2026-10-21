@@ -1,0 +1,6 @@
+{
+  "name": "Telegram Bot Logic",
+  "description": "Backend logic, Super Admin Analytics suite, WhatsApp & Telegram bot engines, Flutterwave SafePay & Pay on Delivery escrow, and conversational AI routing for Floate",
+  "requestFramePermissions": ["camera", "microphone", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

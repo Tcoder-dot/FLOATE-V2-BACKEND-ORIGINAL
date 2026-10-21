@@ -1,0 +1,471 @@
+import React, { useState, useEffect } from 'react';
+import { Store, ShieldCheck, MapPin, MessageCircle, Sparkles, Clock, Share2, ArrowLeft, ExternalLink, Package } from 'lucide-react';
+
+interface Product {
+  id: string;
+  name?: string;
+  product?: string;
+  price?: number | string;
+  numericPrice?: number;
+  category?: string;
+  description?: string;
+  specs?: string;
+  imageUrl?: string;
+  photoUrl?: string;
+  vendorPhone?: string;
+  whatsapp?: string;
+  vendorName?: string;
+  businessName?: string;
+  state?: string;
+  city?: string;
+  isVerified?: boolean;
+  createdAt?: string;
+}
+
+interface StatusStory {
+  id: string;
+  vendorPhone: string;
+  vendorName?: string;
+  caption: string;
+  imageUrl?: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+interface Merchant {
+  id?: string;
+  businessName: string;
+  ownerFullName?: string;
+  whatsapp: string;
+  state?: string;
+  city?: string;
+  category?: string;
+  isVerified?: boolean;
+  verifiedStatus?: string;
+}
+
+export function VendorStorefront() {
+  const [vendorPhone, setVendorPhone] = useState<string>('08031112222');
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [merchant, setMerchant] = useState<Merchant | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [statuses, setStatuses] = useState<StatusStory[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [activeStoryModal, setActiveStoryModal] = useState<StatusStory | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
+
+  // Check URL path on mount or param changes
+  useEffect(() => {
+    const path = window.location.pathname;
+    const search = window.location.search;
+    const params = new URLSearchParams(search);
+
+    if (path.includes('/catalog/') || params.get('prod')) {
+      const prodId = path.split('/catalog/')[1] || params.get('prod') || '';
+      if (prodId) {
+        setSelectedProductId(prodId);
+        fetchProductDetails(prodId);
+      }
+    } else if (path.includes('/vendor/') || params.get('phone')) {
+      const phone = path.split('/vendor/')[1] || params.get('phone') || '08031112222';
+      setVendorPhone(phone);
+      fetchVendorProfile(phone);
+    } else {
+      fetchVendorProfile(vendorPhone);
+    }
+  }, []);
+
+  const fetchVendorProfile = async (phone: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/catalog/vendor/${encodeURIComponent(phone)}`);
+      const data = await res.json();
+      if (data.success) {
+        setMerchant(data.merchant);
+        setProducts(data.products || []);
+        setStatuses(data.statuses || []);
+      }
+    } catch (err) {
+      console.warn('Failed to load vendor profile:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchProductDetails = async (prodId: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/catalog/product/${encodeURIComponent(prodId)}`);
+      const data = await res.json();
+      if (data.success) {
+        setSelectedProduct(data.product);
+        if (data.merchant) setMerchant(data.merchant);
+        if (data.product?.vendorPhone || data.product?.whatsapp) {
+          const phone = data.product.vendorPhone || data.product.whatsapp;
+          setVendorPhone(phone);
+          // Also load vendor's other products and active statuses
+          const vRes = await fetch(`/api/catalog/vendor/${encodeURIComponent(phone)}`);
+          const vData = await vRes.json();
+          if (vData.success) {
+            setProducts(vData.products || []);
+            setStatuses(vData.statuses || []);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load product details:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatPrice = (p?: number | string) => {
+    if (!p) return 'Contact for Price';
+    if (typeof p === 'number') return `₦${p.toLocaleString()}`;
+    if (String(p).startsWith('₦')) return String(p);
+    const num = parseFloat(String(p).replace(/[^0-9.]/g, ''));
+    return isNaN(num) ? String(p) : `₦${num.toLocaleString()}`;
+  };
+
+  const handleWhatsAppContact = (item?: string, price?: number | string) => {
+    const bizName = merchant?.businessName || 'Verified Merchant';
+    const targetPhone = (merchant?.whatsapp || vendorPhone || '').replace(/\D/g, '');
+    const cleanPhone = targetPhone.startsWith('0') ? `234${targetPhone.slice(1)}` : targetPhone;
+    
+    const priceText = price ? ` (${formatPrice(price)})` : '';
+    const inquiryText = `Hello ${bizName}, I saw your product "${item || 'item'}"${priceText} on your Floate web catalogue. Is this available?`;
+    
+    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(inquiryText)}`, '_blank');
+  };
+
+  const copyShareLink = () => {
+    navigator.clipboard.writeText(window.location.href);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 pb-16 font-sans">
+      {/* Top Bar Navigation */}
+      <nav className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {selectedProductId ? (
+              <button
+                onClick={() => {
+                  setSelectedProductId(null);
+                  setSelectedProduct(null);
+                  fetchVendorProfile(vendorPhone);
+                }}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors flex items-center gap-1.5 text-xs font-semibold"
+              >
+                <ArrowLeft className="w-4 h-4" /> Back to Store
+              </button>
+            ) : (
+              <a href="/" className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <Store className="w-4 h-4" />
+                </div>
+                <span className="text-base font-bold text-slate-100 tracking-tight">Floate Storefront</span>
+              </a>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={copyShareLink}
+              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-300 transition-colors flex items-center gap-1.5"
+            >
+              <Share2 className="w-3.5 h-3.5 text-amber-400" />
+              {copiedLink ? 'Link Copied!' : 'Share Web Link'}
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* Main Content Area */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-8">
+        
+        {/* Vendor Header Banner */}
+        <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-6 md:p-8 relative overflow-hidden shadow-2xl">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/5 rounded-full blur-3xl pointer-events-none"></div>
+          
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-amber-400 uppercase tracking-wider">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Verified WhatsApp Storefront</span>
+                <span className="text-slate-600">·</span>
+                <span className="text-emerald-400 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Active Online
+                </span>
+              </div>
+
+              <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+                {merchant?.businessName || 'Verified Merchant Store'}
+              </h1>
+
+              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 pt-1">
+                <span className="flex items-center gap-1 text-slate-300">
+                  <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  {merchant?.city ? `${merchant.city}, ${merchant.state || 'Nigeria'}` : (merchant?.state || 'Nigeria')}
+                </span>
+                <span>·</span>
+                <span>{merchant?.category || 'Commercial Retail'}</span>
+                <span>·</span>
+                <span className="font-mono text-slate-300">+{vendorPhone}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 shrink-0 w-full md:w-auto">
+              <button
+                onClick={() => handleWhatsAppContact('General Storefront Inquiry')}
+                className="w-full md:w-auto px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
+              >
+                <MessageCircle className="w-4 h-4 fill-slate-950" />
+                Chat Vendor on WhatsApp
+              </button>
+            </div>
+          </div>
+
+          {/* 24-Hour Active Status Story Ring Carousel */}
+          {statuses.length > 0 && (
+            <div className="mt-8 pt-6 border-t border-slate-800/80">
+              <div className="flex items-center gap-2 mb-3">
+                <Clock className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                  24-Hour Active Status Stories ({statuses.length})
+                </h3>
+              </div>
+
+              <div className="flex items-center gap-4 overflow-x-auto pb-2 scrollbar-none">
+                {statuses.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => setActiveStoryModal(s)}
+                    className="flex flex-col items-center gap-1.5 shrink-0 group focus:outline-none"
+                  >
+                    <div className="w-16 h-16 rounded-full p-0.5 bg-gradient-to-tr from-emerald-400 via-teal-400 to-amber-400 group-hover:scale-105 transition-transform shadow-md">
+                      <div className="w-full h-full rounded-full bg-slate-950 p-0.5 overflow-hidden">
+                        {s.imageUrl ? (
+                          <img src={s.imageUrl} alt="Status" className="w-full h-full object-cover rounded-full" />
+                        ) : (
+                          <div className="w-full h-full bg-slate-800 flex items-center justify-center text-amber-400 text-xs font-bold">
+                            24h
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-medium text-slate-300 max-w-[70px] truncate">
+                      {s.caption || 'Status Update'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* SINGLE PRODUCT DETAIL VIEW (When Viewing /catalog/:id) */}
+        {selectedProduct ? (
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+              {/* Product Media Gallery */}
+              <div className="rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 aspect-4/3 relative">
+                {selectedProduct.imageUrl || selectedProduct.photoUrl ? (
+                  <img
+                    src={selectedProduct.imageUrl || selectedProduct.photoUrl}
+                    alt={selectedProduct.name || selectedProduct.product}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-slate-600 space-y-2 p-6 text-center">
+                    <Package className="w-12 h-12 text-slate-700" />
+                    <span className="text-xs">High-Res Product Photo</span>
+                  </div>
+                )}
+                <span className="absolute top-3 left-3 bg-emerald-950/80 text-emerald-300 border border-emerald-800 text-[10px] font-bold px-2.5 py-1 rounded-full backdrop-blur">
+                  🟢 Live Stock
+                </span>
+              </div>
+
+              {/* Product Specifications & Order Module */}
+              <div className="space-y-6">
+                <div>
+                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                    {selectedProduct.category || merchant?.category || 'General Product'}
+                  </div>
+                  <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+                    {selectedProduct.name || selectedProduct.product}
+                  </h2>
+                  <div className="text-2xl font-bold text-amber-400 font-mono tabular-nums mt-3">
+                    {formatPrice(selectedProduct.price || selectedProduct.numericPrice)}
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-800 pt-4 space-y-2">
+                  <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Product Details & Specs</h4>
+                  <p className="text-sm text-slate-400 leading-relaxed">
+                    {selectedProduct.description || selectedProduct.specs || 'Verified product listing directly from vendor stock.'}
+                  </p>
+                </div>
+
+                <div className="border-t border-slate-800 pt-4 space-y-3">
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <MapPin className="w-4 h-4 text-amber-400" />
+                    <span>Vendor Location: <strong>{merchant?.city ? `${merchant.city}, ${merchant.state}` : (merchant?.state || 'Nigeria')}</strong></span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span>Verified Store: <strong>{merchant?.businessName}</strong> (+{vendorPhone})</span>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    onClick={() => handleWhatsAppContact(selectedProduct.name || selectedProduct.product, selectedProduct.price)}
+                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold text-base shadow-xl shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                  >
+                    <MessageCircle className="w-5 h-5 fill-slate-950" />
+                    Order Directly via WhatsApp
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* PERMANENT PRODUCT CATALOGUE GRID VIEW */
+          <div className="space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                  Product Catalogue
+                  <span className="text-xs font-mono bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-medium">
+                    {products.length} items
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-400">Real-time inventory uploaded via WhatsApp by {merchant?.businessName}</p>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 h-64 animate-pulse"></div>
+                ))}
+              </div>
+            ) : products.length === 0 ? (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
+                <Package className="w-10 h-10 text-slate-600 mx-auto" />
+                <h3 className="text-base font-bold text-slate-300">Catalogue Updating</h3>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  This merchant hasn't published products yet. You can chat them directly on WhatsApp for custom inquiries.
+                </p>
+                <button
+                  onClick={() => handleWhatsAppContact('General Inquiry')}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold transition-all"
+                >
+                  Message Vendor
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {products.map((p) => (
+                  <div
+                    key={p.id}
+                    className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl overflow-hidden group transition-all flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="aspect-4/3 bg-slate-950 relative overflow-hidden">
+                        {p.imageUrl || p.photoUrl ? (
+                          <img
+                            src={p.imageUrl || p.photoUrl}
+                            alt={p.name || p.product}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-slate-700 p-4 text-center">
+                            <Package className="w-8 h-8 mb-1" />
+                            <span className="text-[10px]">Product Media</span>
+                          </div>
+                        )}
+                        <span className="absolute top-2.5 right-2.5 bg-slate-950/80 text-amber-400 border border-amber-500/30 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md backdrop-blur">
+                          {formatPrice(p.price || p.numericPrice)}
+                        </span>
+                      </div>
+
+                      <div className="p-4 space-y-2">
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                          {p.category || 'In Stock'}
+                        </div>
+                        <h3 className="text-base font-bold text-slate-100 group-hover:text-amber-400 transition-colors line-clamp-1">
+                          {p.name || p.product}
+                        </h3>
+                        {p.description && (
+                          <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
+                            {p.description || p.specs}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="p-4 pt-0 space-y-2">
+                      <button
+                        onClick={() => handleWhatsAppContact(p.name || p.product, p.price || p.numericPrice)}
+                        className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-emerald-600 hover:text-slate-950 text-emerald-400 font-bold text-xs transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        Inquire via WhatsApp
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 24-Hour Status Story Modal */}
+      {activeStoryModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 space-y-4 relative shadow-2xl">
+            <button
+              onClick={() => setActiveStoryModal(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-full bg-slate-800"
+            >
+              ✕
+            </button>
+
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-bold text-slate-200">24h Active Status Story</span>
+            </div>
+
+            {activeStoryModal.imageUrl && (
+              <div className="aspect-square bg-slate-950 rounded-2xl overflow-hidden border border-slate-800">
+                <img src={activeStoryModal.imageUrl} alt="Status" className="w-full h-full object-cover" />
+              </div>
+            )}
+
+            <p className="text-sm text-slate-200 font-medium leading-relaxed bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+              "{activeStoryModal.caption}"
+            </p>
+
+            <button
+              onClick={() => {
+                setActiveStoryModal(null);
+                handleWhatsAppContact(activeStoryModal.caption);
+              }}
+              className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all flex items-center justify-center gap-2"
+            >
+              <MessageCircle className="w-4 h-4" />
+              Reply to Status on WhatsApp
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

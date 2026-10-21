@@ -1,0 +1,179 @@
+{
+  "entities": {
+    "merchants": {
+      "title": "Merchants",
+      "description": "Registered business merchants with credit balances and listings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "businessName": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "userId": { "type": "string" },
+        "telegramId": { "type": "string" },
+        "claimDate": { "type": "string" },
+        "verifiedStatus": { "type": "string", "enum": ["YES", "PENDING"] },
+        "username": { "type": "string" },
+        "state": { "type": "string" },
+        "city": { "type": "string" },
+        "category": { "type": "string" },
+        "listingType": { "type": "string" },
+        "isVerified": { "type": "boolean" },
+        "credit_balance": { "type": "number" },
+        "referralCode": { "type": "string" },
+        "referredBy": { "type": "string" },
+        "referralsCount": { "type": "number" },
+        "referralCreditsEarned": { "type": "number" },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "businessName", "whatsapp", "credit_balance", "status"]
+    },
+    "user_sessions": {
+      "title": "User Sessions",
+      "description": "Multi-tenant session states for Telegram bot users",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "state": { "type": "string", "enum": ["IDLE_SEARCH", "QUALIFYING", "IN_SESSION"] },
+        "selectedMerchantId": { "type": "string" },
+        "selectedItem": { "type": "string" },
+        "deliveryLocation": { "type": "string" },
+        "activeSessionId": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "state"]
+    },
+    "qualification_sessions": {
+      "title": "Qualification Sessions",
+      "description": "Active lead qualification firewall sessions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "buyerId": { "type": "string" },
+        "buyerUsername": { "type": "string" },
+        "merchantId": { "type": "string" },
+        "merchantTelegramId": { "type": "string" },
+        "item": { "type": "string" },
+        "deliveryLocation": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING_LOCATION", "PENDING_MERCHANT", "QUALIFIED", "EXPIRED", "CANCELLED"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "buyerId", "merchantId", "status"]
+    },
+    "leads": {
+      "title": "Leads",
+      "description": "Qualified lead deliveries charged to merchant wallets",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ref": { "type": "string" },
+        "buyerId": { "type": "string" },
+        "merchantId": { "type": "string" },
+        "merchantName": { "type": "string" },
+        "item": { "type": "string" },
+        "location": { "type": "string" },
+        "cost": { "type": "number" },
+        "waLink": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "ref", "buyerId", "merchantId", "cost"]
+    },
+    "transactions": {
+      "title": "Transactions",
+      "description": "Credit deductions and wallet top-ups",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "merchantId": { "type": "string" },
+        "type": { "type": "string", "enum": ["TOPUP", "LEAD_DEDUCTION"] },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "reference": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "merchantId", "type", "amount"]
+    },
+    "search_logs": {
+      "title": "Search Logs",
+      "description": "Buyer search queries tracked for analytics and Google Sheets sync",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "buyerTelegramId": { "type": "string" },
+        "buyerName": { "type": "string" },
+        "searchedProduct": { "type": "string" },
+        "searchedPrice": { "type": "string" },
+        "searchedLocation": { "type": "string" },
+        "matchFound": { "type": "string", "enum": ["Yes", "No"] },
+        "numberOfMatches": { "type": "number" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "buyerTelegramId", "searchedProduct", "timestamp"]
+    },
+    "products": {
+      "title": "Products",
+      "description": "Product and service inventory items linked to merchant businesses",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "merchantId": { "type": "string" },
+        "userId": { "type": "string" },
+        "businessName": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "state": { "type": "string" },
+        "city": { "type": "string" },
+        "listingType": { "type": "string", "enum": ["Product", "Service"] },
+        "category": { "type": "string" },
+        "product": { "type": "string" },
+        "price": { "type": "string" },
+        "numericPrice": { "type": "number" },
+        "negotiation": { "type": "string", "enum": ["Yes", "No"] },
+        "quantity": { "type": "number" },
+        "specs": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "visualTags": { "type": "array", "items": { "type": "string" } },
+        "ocrText": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "merchantId", "businessName", "product", "price"]
+    },
+    "restock_alerts": {
+      "title": "Restock Alerts",
+      "description": "Broadcast Lead Radar alerts sent to buyers when inventory is added or restocked",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "merchantId": { "type": "string" },
+        "merchantName": { "type": "string" },
+        "buyerTelegramId": { "type": "string" },
+        "buyerName": { "type": "string" },
+        "status": { "type": "string", "enum": ["SENT", "PENDING"] },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "productId", "merchantId", "buyerTelegramId", "timestamp"]
+    },
+    "referrals": {
+      "title": "Referrals",
+      "description": "User and merchant referrals tracking invites, rewards, and status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "referrerPhone": { "type": "string" },
+        "referrerCode": { "type": "string" },
+        "referrerName": { "type": "string" },
+        "referredPhone": { "type": "string" },
+        "referredBusinessName": { "type": "string" },
+        "rewardCredits": { "type": "number" },
+        "bonusGivenToNewUser": { "type": "number" },
+        "type": { "type": "string", "enum": ["BUSINESS_REGISTRATION", "BUYER_INVITE"] },
+        "status": { "type": "string", "enum": ["PENDING", "COMPLETED"] },
+        "createdAt": { "type": "string" },
+        "completedAt": { "type": "string" }
+      },
+      "required": ["id", "referrerPhone", "referredPhone", "status", "createdAt"]
+    }
+  }
+}
