@@ -937,17 +937,34 @@ export async function handleWhatsAppWebhook(req: express.Request, res: express.R
               } else if (flowResult.action === 'REGISTER_MERCHANT') {
                 try {
                   const data = JSON.parse(nfmReply.response_json);
+                  const ownerName = data.owner_full_name || senderName;
+                  const businessName = data.business_name || 'Your Store';
+                  const businessType = data.business_type || (data.shop_address ? 'physical_stall' : 'dropshipper_online');
+                  const shopAddressText = data.shop_address ? `\n• Shop Address: ${data.shop_address}` : '';
+                  const ref = (flowResult as any).verificationRef || `FLT-VR-${Math.floor(100000 + Math.random() * 900000)}`;
+                  const token = (flowResult as any).verificationToken || Buffer.from(`${senderPhone}_${Date.now()}`).toString('hex').slice(0, 24);
+                  const cleanPhone = senderPhone.replace(/\D/g, '');
+                  const verifyUrl = `https://www.floate.xyz/verify?token=${token}&ref=${ref}&phone=${cleanPhone}`;
+
                   await sendWhatsAppMessage(
                     senderPhone,
-                    `🎉 *Congratulations, ${data.owner_full_name || senderName}!*\n\n` +
-                    `Your store *${data.business_name}* is now live on Floate with a *Verified Merchant Badge* 🟢!\n` +
-                    `• Commercial Hub: ${data.market_location || 'Nigeria'}\n` +
-                    `• Category: ${data.category || 'General Commercial'}\n\n` +
-                    `You will receive buyer leads directly on this WhatsApp line.`,
+                    `🎉 *Details Received, ${ownerName}!*\n\n` +
+                    `Your store *${businessName}* has been recorded on Floate (Ref: *#${ref}*).\n` +
+                    `• Owner Full Name: ${ownerName}\n` +
+                    `• Operation Model: ${businessType === 'physical_stall' ? '🏬 Physical Stall / Shop' : '📦 Dropshipper / Online Store'}` +
+                    `${shopAddressText}\n` +
+                    `• Market/Hub: ${data.market_location || 'Nigeria'}\n` +
+                    `• Category: ${data.category || 'General Merchandise'}\n\n` +
+                    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `🛡️ *FINAL STEP: GET YOUR VERIFIED BADGE*\n` +
+                    `To display the *✓ Verified Merchant Badge* on floate.xyz and earn buyer trust, tap your visual verification link below:\n\n` +
+                    `🔗 *${verifyUrl}*\n\n` +
+                    `${businessType === 'physical_stall' ? '📸 *Physical Stalls:* Tap the link to snap a live photo of your stall storefront, banner, or shop number.' : '📦 *Dropshippers:* Tap the link to snap a photo of your inventory in hand, waybill slip, or owner ID.'}\n\n` +
+                    `_💡 Prefer to do it here? You can also reply directly to this WhatsApp chat with your verification photo right now!_`,
                     {
                       quickReplies: [
+                        { id: `btn_verify_${token}`, title: '📸 Open Verify Link' },
                         { id: 'btn_for_businesses', title: '🏪 Business Hub' },
-                        { id: 'btn_home', title: '🏠 Main Menu' },
                       ],
                     }
                   );
@@ -3410,20 +3427,16 @@ export async function handleActiveRelayMessage(
     );
 
   if (isSafePayTrigger) {
-    activeRelay.status = 'AWAITING_BUYER_PRICE';
-    activeRelay.updatedAt = new Date().toISOString();
-    saveRelaySession(activeRelay);
-    await firestoreDb.saveRelaySessionDoc(activeRelay);
-
-    const pricePrompt =
-      `💰 *Floate SafePay — Agreed Price Confirmation*\n` +
+    const pauseNotice =
+      `🔒 *Floate SafePay Escrow Notice*\n` +
       `━━━━━━━━━━━━━━━━━━\n` +
-      `To ensure 100% accuracy and keep your escrow transaction completely error-free, please enter the final agreed amount you and *${activeRelay.vendorName}* concluded on for *${activeRelay.item}*:\n\n` +
-      `👉 Reply with the amount (e.g. \`₦45,000\`, \`45k\`, or \`150000\`):`;
+      `Online escrow checkout is temporarily paused for our webfront launch on *floate.xyz*.\n\n` +
+      `🤝 You can deal directly with *${activeRelay.vendorName}* on WhatsApp. They are a verified merchant with a confirmed market physical shop.\n\n` +
+      `💬 Type any message below to continue chatting directly with the merchant:`;
 
-    await sendWhatsAppMessage(activeRelay.buyerPhone, pricePrompt, {
+    await sendWhatsAppMessage(activeRelay.buyerPhone, pauseNotice, {
       quickReplies: [
-        { id: 'btn_safepay_chat', title: '💬 Back to Chat' },
+        { id: 'btn_safepay_chat', title: '💬 Continue Chat' },
       ],
     });
     return;
@@ -6131,6 +6144,14 @@ export async function processMasterWhatsAppEngine(params: {
   console.log(`[WhatsApp Inbound] 🧭 Classified Intent: ${classification.intent} (${(classification.confidence * 100).toFixed(0)}%)`);
   pushWaLog(`🧭 Intent: ${classification.intent} (${(classification.confidence * 100).toFixed(0)}%) for +${cleanPhone}`);
 
+  // 0. FAQ Knowledge Engine (Always answers user inquiries & FAQs directly before routing)
+  const detectedFaq = detectFaqCategory(text);
+  if (detectedFaq) {
+    console.log(`[WhatsApp Inbound] 💡 FAQ Knowledge Engine Matched: "${detectedFaq}" for +${cleanPhone}`);
+    await handleComprehensiveFaq(cleanPhone, senderName, text, detectedFaq);
+    return;
+  }
+
   // 1. Reset / Home
   if (classification.intent === 'RESET_OR_HOME') {
     console.log(`[WhatsApp Inbound] 🚀 Routing to: sendWelcomeGreeting`);
@@ -6459,38 +6480,365 @@ export async function processMasterWhatsAppEngine(params: {
 }
 
 /**
- * Helpful Explanations for User Support and How to Connect
+ * Clean greeting name resolver:
+ * Strips punctuation, dots, dashes, and invalid characters.
+ * If user display name is empty or a dot (e.g. "."), attempts to load the real name
+ * from Firestore (ownerFullName or buyer name), otherwise defaults cleanly to empty string.
  */
-async function handleHelpOrSupportExplanation(toPhone: string, senderName: string, queryText: string) {
-  const name = senderName && senderName !== 'Customer' ? senderName.trim() : '';
-  const prefix = name ? `Hello ${name}, ` : 'Hello! ';
-  const lower = (queryText || '').toLowerCase();
+async function getCleanGreetingName(senderPhone: string, senderName: string): Promise<string> {
+  const raw = (senderName || '').trim();
+  // Strip non-alphanumeric at start and end
+  const cleaned = raw.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '').trim();
+  if (/[a-zA-Z]{2,}/.test(cleaned) && cleaned.toLowerCase() !== 'customer') {
+    return cleaned.split(/\s+/)[0];
+  }
 
-  // If user specifically asked how to connect or message a vendor
-  if (/connect|reach vendor|message seller|chat with vendor|contact seller|contact vendor/i.test(lower)) {
-    const connectGuide =
+  // Look up in Firestore for saved ownerFullName or buyer account name
+  try {
+    const cleanPhone = normalizePhone(senderPhone);
+    const merchant = await firestoreDb.getMerchant(cleanPhone);
+    if (merchant?.ownerFullName && /[a-zA-Z]{2,}/.test(merchant.ownerFullName)) {
+      return merchant.ownerFullName.trim().split(/\s+/)[0];
+    }
+    const buyer = await firestoreDb.getBuyerAccount(cleanPhone);
+    if (buyer?.name && /[a-zA-Z]{2,}/.test(buyer.name) && buyer.name.toLowerCase() !== 'customer') {
+      return buyer.name.trim().split(/\s+/)[0];
+    }
+  } catch {
+    // ignore
+  }
+
+  return '';
+}
+
+/**
+ * Detects specific FAQ Category from incoming query text
+ */
+export function detectFaqCategory(rawText: string): string | null {
+  if (!rawText) return null;
+  const lower = rawText.toLowerCase().trim();
+
+  // 1. Business Registration & Selling FAQs
+  if (
+    /\b(?:how\s+(?:do\s+i|can\s+i|to)|what\s+(?:is\s+the\s+process|are\s+the\s+steps|do\s+i\s+need|requirements)|steps\s+to|procedure\s+to|guide\s+to)\s+(?:register|sign\s*up|join|open|start|list|sell|onboard)\s+(?:as\s+a?\s*)?(?:my\s+|a\s+|our\s+)?(?:business|store|shop|vendor|seller|merchant|company|products?)?\b/i.test(lower) ||
+    /\b(?:how\s+(?:does|do)\s+(?:business\s+)?registration\s+work|how\s+to\s+sell\s+on\s+floate|how\s+can\s+i\s+sell|how\s+do\s+i\s+become\s+a\s+(?:vendor|seller|merchant))\b/i.test(lower)
+  ) {
+    return 'HOW_TO_REGISTER';
+  }
+
+  // 2. Dropshippers / No Physical Shop FAQs
+  if (
+    /\b(?:dropship|dropshipper|dropshipping|no\s+shop|without\s+(?:a\s+)?shop|online\s+only|online\s+vendor|can\s+dropshippers|i\s+don'?t\s+have\s+a\s+shop|must\s+i\s+have\s+a\s+shop|do\s+i\s+need\s+a\s+(?:physical\s+)?(?:shop|stall|store))\b/i.test(lower)
+  ) {
+    return 'DROPSHIPPER_FAQ';
+  }
+
+  // 3. Pricing, Commission & Fees FAQs
+  if (
+    /\b(?:how\s+much\s+(?:is|does\s+it\s+cost|do\s+you\s+charge)|is\s+(?:it|registration|selling|floate)\s+free|cost\s+(?:to|of)\s+register|registration\s+fee|seller\s+fees?|commission\s+fee|do\s+you\s+take\s+commission|what\s+is\s+the\s+charge|pricing|subscription)\b/i.test(lower)
+  ) {
+    return 'PRICING_AND_FEES';
+  }
+
+  // 4. How to Connect / Message a Vendor FAQs
+  if (
+    /\b(?:how\s+(?:do\s+i|can\s+i|to)\s+(?:connect|reach|message|chat\s+with|contact|talk\s+to)\s+(?:a\s+)?(?:vendor|seller|merchant|store|shop)|how\s+does\s+(?:connecting|chatting)\s+work)\b/i.test(lower)
+  ) {
+    return 'CONNECT_TO_VENDOR';
+  }
+
+  // 5. Verified Badge & Verification Process FAQs
+  if (
+    /\b(?:how\s+(?:do\s+i|can\s+i|to)\s+(?:get\s+verified|verify\s+(?:my\s+)?(?:business|store|shop|stall)|get\s+(?:the\s+)?(?:blue|green)?\s*badge)|what\s+is\s+(?:the\s+)?verified\s+badge|how\s+does\s+verification\s+work|visual\s+verification|verification\s+process)\b/i.test(lower)
+  ) {
+    return 'VERIFIED_BADGE';
+  }
+
+  // 6. Adding Products & Daily Status Updates FAQs
+  if (
+    /\b(?:how\s+(?:do\s+i|can\s+i|to)\s+(?:add|upload|list|post|edit|update)\s+(?:my\s+)?(?:products?|items?|goods?|catalog|pictures?|photos?|stock)|how\s+(?:do|does)\s+(?:daily\s+)?status\s+(?:updates?\s+)?work|how\s+to\s+post\s+status)\b/i.test(lower)
+  ) {
+    return 'ADD_PRODUCTS_CATALOG';
+  }
+
+  // 7. Delivery & Waybill FAQs
+  if (
+    /\b(?:how\s+(?:does|do)\s+delivery\s+work|who\s+handles\s+delivery|is\s+delivery\s+(?:available|interstate|nationwide)|interstate\s+waybill|how\s+do\s+i\s+get\s+my\s+(?:item|order|goods|package)|dispatch\s+rider)\b/i.test(lower)
+  ) {
+    return 'DELIVERY_AND_WAYBILL';
+  }
+
+  // 8. How to Buy / Platform Overview FAQs
+  if (
+    /\b(?:how\s+(?:do\s+i|can\s+i|to)\s+(?:buy|shop|order|find\s+(?:items|products|goods))|how\s+does\s+(?:floate|shopping)\s+work|what\s+is\s+floate|who\s+(?:is|created|owns)\s+floate|tell\s+me\s+about\s+floate)\b/i.test(lower)
+  ) {
+    return 'BUYER_SHOPPING_GUIDE';
+  }
+
+  // 9. Safety, Trust & Scam Prevention FAQs
+  if (
+    /\b(?:how\s+(?:do\s+i|to)\s+avoid\s+scam|is\s+floate\s+safe|are\s+(?:vendors|sellers)\s+real|can\s+i\s+trust\s+(?:sellers|vendors)|what\s+if\s+(?:a\s+)?(?:vendor|seller)\s+scams\s+me|safety\s+tips|protection)\b/i.test(lower)
+  ) {
+    return 'SAFETY_AND_SCAM';
+  }
+
+  // 10. Location Change FAQs
+  if (
+    /\b(?:how\s+(?:do\s+i|can\s+i|to)\s+change\s+(?:my\s+)?(?:location|city|town|state)|update\s+(?:my\s+)?(?:location|city)|switch\s+city)\b/i.test(lower)
+  ) {
+    return 'LOCATION_CHANGE';
+  }
+
+  // 11. Customer Support & Contact FAQs
+  if (
+    /\b(?:how\s+(?:do\s+i|can\s+i|to)\s+(?:contact|reach|call)\s+(?:support|customer\s+care|customer\s+service|floate\s+team|human|agent|admin)|customer\s+care\s+number|support\s+email|file\s+(?:a\s+)?complaint)\b/i.test(lower)
+  ) {
+    return 'SUPPORT_AND_CONTACT';
+  }
+
+  return null;
+}
+
+/**
+ * Comprehensive Multi-Topic Floate FAQ Knowledge Engine
+ * Answers all buyer & merchant questions intelligently with actionable quick-reply buttons.
+ */
+async function handleComprehensiveFaq(
+  toPhone: string,
+  senderName: string,
+  queryText: string,
+  categoryOverride?: string | null
+): Promise<boolean> {
+  const cleanPhone = normalizePhone(toPhone);
+  const cleanName = await getCleanGreetingName(cleanPhone, senderName);
+  const prefix = cleanName ? `Hello ${cleanName}, ` : 'Hello! ';
+  const category = categoryOverride || detectFaqCategory(queryText) || 'GENERAL';
+
+  // 1. HOW TO REGISTER BUSINESS FAQ
+  if (category === 'HOW_TO_REGISTER') {
+    const existingMerchant = await firestoreDb.getMerchant(cleanPhone);
+    const isRegistered = Boolean(existingMerchant && existingMerchant.businessName);
+
+    let msg =
+      `${prefix}here is how business registration works on Floate:\n\n` +
+      `1️⃣ *60-Second Store Setup:* Tell us your Store Name, Category, and Owner Full Name.\n\n` +
+      `2️⃣ *Choose Your Business Model:*\n` +
+      `   • 🏬 *Physical Stall:* For shops in commercial market hubs (Balogun, Computer Village, Onitsha, Wuse, Alaba, etc.). Shop address is recommended.\n` +
+      `   • 📦 *Dropshippers & Online Sellers:* For sellers delivering nationwide. No physical shop address needed!\n\n` +
+      `3️⃣ *Earn Your Verified Badge:* Complete quick visual proof (live stall photo or waybill slip/ID) to unlock the *✓ Verified Badge* on floate.xyz.\n\n` +
+      `4️⃣ *0% Commission & 25 Free Buyer Leads:* You keep 100% of your earnings, and new stores receive 25 free buyer connections!\n\n`;
+
+    if (isRegistered) {
+      msg += `ℹ️ *Note:* This WhatsApp number is already linked to *${existingMerchant!.businessName}*! You can manage your products, post daily status updates, or re-verify anytime below.`;
+    } else {
+      msg += `Ready to start receiving buyers on WhatsApp? Tap *"Register Store"* below to begin:`;
+    }
+
+    await sendWhatsAppMessage(toPhone, msg, {
+      quickReplies: [
+        {
+          id: isRegistered ? 'btn_for_businesses' : 'btn_register_business',
+          title: isRegistered ? '🏪 Manage Store' : '📝 Register Store',
+        },
+        { id: 'btn_find_product', title: '🔍 Search Products' },
+        { id: 'btn_home', title: '🏠 Main Menu' },
+      ],
+    });
+    return true;
+  }
+
+  // 2. DROPSHIPPER / NO PHYSICAL SHOP FAQ
+  if (category === 'DROPSHIPPER_FAQ') {
+    const msg =
+      `${prefix}YES, absolutely! Dropshippers and online sellers can register on Floate 100%:\n\n` +
+      `📦 *No Physical Shop Needed:* You do NOT need a stall in a market. Floate welcomes remote sellers, social media vendors, and dropshippers.\n\n` +
+      `🚚 *Nationwide Delivery:* Connect with buyers searching from Lagos, Abuja, Port Harcourt, Onitsha, and across Nigeria.\n\n` +
+      `🛡️ *How Dropshippers Verify:* Instead of a shopfront photo, you simply provide proof of your inventory in hand, supplier delivery waybill, or owner ID.\n\n` +
+      `🎁 *25 Free Buyer Leads:* Start receiving direct buyer inquiries on this WhatsApp line with 0% commission!`;
+
+    await sendWhatsAppMessage(toPhone, msg, {
+      quickReplies: [
+        { id: 'btn_register_business', title: '📝 Register as Dropshipper' },
+        { id: 'btn_find_product', title: '🔍 Search Products' },
+        { id: 'btn_home', title: '🏠 Main Menu' },
+      ],
+    });
+    return true;
+  }
+
+  // 3. PRICING, FEES & COMMISSION FAQ
+  if (category === 'PRICING_AND_FEES') {
+    const msg =
+      `${prefix}here is our transparent pricing for businesses:\n\n` +
+      `✅ *100% Free Store Registration:* Creating your store profile on Floate costs ₦0.\n\n` +
+      `✅ *0% Commission on Direct Deals:* You keep 100% of your buyer sales. Floate never takes a percentage of your direct transactions.\n\n` +
+      `✅ *25 Free Buyer Leads:* Every newly onboarded business gets 25 free buyer connections.\n\n` +
+      `💳 *Pay-As-You-Grow Credits:* If you want extra spotlight leads after your free package, you can top up starting at just ₦200 per qualified buyer connection.`;
+
+    await sendWhatsAppMessage(toPhone, msg, {
+      quickReplies: [
+        { id: 'btn_register_business', title: '📝 Register Free' },
+        { id: 'btn_for_businesses', title: '🏪 Business Hub' },
+        { id: 'btn_home', title: '🏠 Main Menu' },
+      ],
+    });
+    return true;
+  }
+
+  // 4. HOW TO CONNECT / MESSAGE A VENDOR FAQ
+  if (category === 'CONNECT_TO_VENDOR') {
+    const msg =
       `${prefix}connecting to a verified vendor on Floate is fast and secure:\n\n` +
       `1️⃣ *Search for what you need:* Type any item or market (e.g., \`Leather shoes in Onitsha\` or \`Solar inverter\`) or send a voice note.\n\n` +
       `2️⃣ *Select a Vendor:* View the top matching vendors and tap *"Select Vendor"* or reply with their number.\n\n` +
       `3️⃣ *Direct Connection:* Floate opens a direct private connection so you can discuss items, negotiate, and arrange delivery safely.\n\n` +
       `💬 What would you like to shop for today?`;
 
-    await sendWhatsAppMessage(toPhone, connectGuide, {
+    await sendWhatsAppMessage(toPhone, msg, {
       quickReplies: [
         { id: 'btn_find_product', title: '🔍 Search Items' },
         { id: 'btn_browse_markets', title: '📍 Browse Markets' },
         { id: 'btn_home', title: '🏠 Main Menu' },
       ],
     });
-    return;
+    return true;
   }
 
-  // General help & platform overview
+  // 5. VERIFIED BADGE & TRUST FAQ
+  if (category === 'VERIFIED_BADGE') {
+    const msg =
+      `${prefix}here is how the Floate Verified Badge works:\n\n` +
+      `🛡️ *What is it?* The *✓ Verified Badge* is a trust stamp displayed beside your store name in search results and on www.floate.xyz.\n\n` +
+      `📈 *The Benefit:* Verified merchants receive up to 5x more buyer inquiries because shoppers trust verified businesses.\n\n` +
+      `📸 *How to get it:*\n` +
+      `• *Physical Stalls:* Tap the verification link to snap a live photo of your stall storefront, banner, or shop number.\n` +
+      `• *Dropshippers:* Tap the link to submit a photo of your inventory in hand, waybill slip, or owner ID.`;
+
+    await sendWhatsAppMessage(toPhone, msg, {
+      quickReplies: [
+        { id: 'btn_register_business', title: '🛡️ Get Verified' },
+        { id: 'btn_find_product', title: '🔍 Verified Vendors' },
+        { id: 'btn_home', title: '🏠 Main Menu' },
+      ],
+    });
+    return true;
+  }
+
+  // 6. ADD PRODUCTS & CATALOG FAQ
+  if (category === 'ADD_PRODUCTS_CATALOG') {
+    const msg =
+      `${prefix}here is how to manage your products on Floate:\n\n` +
+      `📸 *1. Add Products via Chat:* Simply drop a picture of your item in this chat with the price and description (e.g., "Nike Air Max ₦45,000 Size 42"). Our AI automatically adds it to your catalog!\n\n` +
+      `📝 *2. Add Products in Menu:* Tap "Store Menu" ➔ "Add Product" anytime.\n\n` +
+      `⏱️ *3. 24-Hour Daily Status Stories:* Post a daily photo or special offer that appears as a story bubble on www.floate.xyz for 24 hours.`;
+
+    await sendWhatsAppMessage(toPhone, msg, {
+      quickReplies: [
+        { id: 'btn_vendor_add_product', title: '➕ Add Product' },
+        { id: 'btn_vendor_edit_products', title: '📦 View Catalog' },
+        { id: 'btn_for_businesses', title: '🏪 Store Menu' },
+      ],
+    });
+    return true;
+  }
+
+  // 7. DELIVERY & WAYBILL FAQ
+  if (category === 'DELIVERY_AND_WAYBILL') {
+    const msg =
+      `${prefix}here is how delivery works on Floate:\n\n` +
+      `🛵 *Local Intrastate Delivery:* Vendors arrange local dispatch riders (e.g. within Lagos, Abuja, or Port Harcourt) directly to your doorstep.\n\n` +
+      `🚛 *Interstate Waybill:* For orders across states, vendors use established park transport and logistics services (e.g., GIGM, ABC Transport, Young Shall Grow, Peace Mass).\n\n` +
+      `🤝 *Direct Terms:* You confirm delivery timing, cost, and tracking directly with the vendor in your WhatsApp chat.`;
+
+    await sendWhatsAppMessage(toPhone, msg, {
+      quickReplies: [
+        { id: 'btn_find_product', title: '🔍 Shop Items' },
+        { id: 'btn_browse_markets', title: '📍 Browse Markets' },
+        { id: 'btn_home', title: '🏠 Main Menu' },
+      ],
+    });
+    return true;
+  }
+
+  // 8. BUYER SHOPPING GUIDE / PLATFORM OVERVIEW FAQ
+  if (category === 'BUYER_SHOPPING_GUIDE') {
+    const msg =
+      `${prefix}welcome to Floate! Here is how to shop effortlessly:\n\n` +
+      `1️⃣ *Type or Speak:* Tell Floate what you want in plain words (e.g., "Wig in Ikeja", "iPhone 13 256GB", "Wholesale jewelry") or send a voice note.\n\n` +
+      `2️⃣ *Compare Sellers:* View verified sellers from Balogun, Computer Village, Onitsha, Wuse, or nationwide online sellers.\n\n` +
+      `3️⃣ *Chat Directly:* Tap to connect and conclude your purchase directly with the merchant on WhatsApp.`;
+
+    await sendWhatsAppMessage(toPhone, msg, {
+      quickReplies: [
+        { id: 'btn_find_product', title: '🔍 Start Shopping' },
+        { id: 'btn_for_businesses', title: '🏪 For Businesses' },
+        { id: 'btn_home', title: '🏠 Main Menu' },
+      ],
+    });
+    return true;
+  }
+
+  // 9. SAFETY & SCAM PREVENTION FAQ
+  if (category === 'SAFETY_AND_SCAM') {
+    const msg =
+      `${prefix}here are Floate's safety & fraud protection tips:\n\n` +
+      `🛡️ *Look for the Verified Shield:* Prioritize vendors with the *✓ Verified Badge* on their profiles.\n\n` +
+      `📸 *Request Live Media:* Ask vendors for a live photo or quick video of the item before sending payments.\n\n` +
+      `💳 *Verify Account Names:* Ensure the recipient bank account name matches the registered business or owner name.\n\n` +
+      `🚨 *Report Suspicious Activity:* If any seller acts unprofessionally, type "Report vendor" to alert our admin team immediately.`;
+
+    await sendWhatsAppMessage(toPhone, msg, {
+      quickReplies: [
+        { id: 'btn_find_product', title: '🔍 Verified Sellers' },
+        { id: 'btn_report_vendor', title: '🚨 Report a Vendor' },
+        { id: 'btn_home', title: '🏠 Main Menu' },
+      ],
+    });
+    return true;
+  }
+
+  // 10. LOCATION CHANGE FAQ
+  if (category === 'LOCATION_CHANGE') {
+    const msg =
+      `${prefix}to change your default shopping city:\n\n` +
+      `📍 Simply type \`Change location to [City]\` (e.g., \`Change location to Abuja\`, \`Change location to Lagos\`, or \`Change location to Onitsha\`).\n\n` +
+      `Floate will automatically filter future product searches to your chosen area!`;
+
+    await sendWhatsAppMessage(toPhone, msg, {
+      quickReplies: [
+        { id: 'btn_browse_markets', title: '🏢 Browse Markets' },
+        { id: 'btn_find_product', title: '🔍 Search Products' },
+        { id: 'btn_home', title: '🏠 Main Menu' },
+      ],
+    });
+    return true;
+  }
+
+  // 11. SUPPORT & CONTACT FAQ
+  if (category === 'SUPPORT_AND_CONTACT') {
+    const msg =
+      `${prefix}Floate Support is here to help you 24/7:\n\n` +
+      `📧 *Email:* support@floate.xyz\n` +
+      `🌐 *Website:* www.floate.xyz\n` +
+      `🛡️ *Report Issues:* Type "Report vendor" anytime to report fraudulent behavior.\n\n` +
+      `You can also type your question or inquiry directly here!`;
+
+    await sendWhatsAppMessage(toPhone, msg, {
+      quickReplies: [
+        { id: 'btn_report_vendor', title: '🚨 File a Report' },
+        { id: 'btn_find_product', title: '🔍 Search Products' },
+        { id: 'btn_home', title: '🏠 Main Menu' },
+      ],
+    });
+    return true;
+  }
+
+  // General help fallback
   await sendWhatsAppMessage(
     toPhone,
     `${prefix}welcome to Floate! Here is how you can use Floate:\n\n` +
     `🛍️ *To Shop:* Simply type what you want and where (e.g. "Leather shoes in Onitsha" or "Solar battery 100k") or send a voice note.\n\n` +
-    `🏪 *For Businesses:* Type "Register my shop" to list your products and connect with buyers across Nigeria.\n\n` +
+    `🏪 *For Businesses:* Type "How do I register my business" or "Register my shop" to list products and get qualified buyer leads.\n\n` +
     `📍 *Change Location:* Type "Change my location" to update your default shopping city.\n\n` +
     `🛡️ *Support & Reports:* Email us at support@floate.xyz anytime.`,
     {
@@ -6501,6 +6849,12 @@ async function handleHelpOrSupportExplanation(toPhone: string, senderName: strin
       ],
     }
   );
+  return true;
+}
+
+// Backward-compatible alias
+async function handleHelpOrSupportExplanation(toPhone: string, senderName: string, queryText: string) {
+  return handleComprehensiveFaq(toPhone, senderName, queryText);
 }
 
 /**
@@ -6511,8 +6865,8 @@ async function sendWelcomeGreeting(toPhone: string, senderName: string) {
   const buyer = await firestoreDb.getOrCreateBuyerAccount(toPhone, 'whatsapp', senderName);
   const alreadySeenTip = session.hasSeenSaveTip || (await firestoreDb.hasUserSeenSaveTip(toPhone));
 
-  const name = senderName && senderName !== 'Customer' ? senderName.trim() : '';
-  const prefix = name ? `Hello ${name}, ` : 'Hello, ';
+  const cleanName = await getCleanGreetingName(toPhone, senderName);
+  const prefix = cleanName ? `Hello ${cleanName}, ` : 'Hello, ';
 
   let msg = '';
   if (!alreadySeenTip && !buyer.primaryLocation) {

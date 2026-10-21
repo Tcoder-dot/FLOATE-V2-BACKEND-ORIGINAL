@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
+  AlertTriangle,
   ExternalLink,
   Smartphone,
   MessageSquare,
@@ -27,6 +28,8 @@ import {
   Layers,
   Sparkles,
 } from 'lucide-react';
+
+import { RecommendationEngineStudio } from './RecommendationEngineStudio';
 
 interface AdminMetrics {
   totalLinkUps: number;
@@ -66,7 +69,7 @@ export function AdminDashboard() {
   const [lastRefreshed, setLastRefreshed] = useState<string>('');
 
   // Sub-tab Navigation
-  const [currentView, setCurrentView] = useState<'overview' | 'deals' | 'relays' | 'merchants' | 'buyers' | 'channels' | 'flows'>('overview');
+  const [currentView, setCurrentView] = useState<'overview' | 'engine' | 'deals' | 'relays' | 'merchants' | 'buyers' | 'channels' | 'flows'>('overview');
 
   // Filters & Search
   const [dealSearch, setDealSearch] = useState('');
@@ -524,7 +527,7 @@ export function AdminDashboard() {
           }`}
         >
           <Package className="w-3.5 h-3.5" />
-          SafePay Escrow Deals ({metrics?.recentDeals?.length || 0})
+          SafePay Deals <span className="text-[10px] font-mono px-1.5 py-0.2 bg-amber-950 text-amber-300 rounded border border-amber-700">Paused</span> ({metrics?.recentDeals?.length || 0})
         </button>
 
         <button
@@ -573,6 +576,18 @@ export function AdminDashboard() {
         >
           <Smartphone className="w-3.5 h-3.5" />
           WhatsApp & Telegram Alerts
+        </button>
+
+        <button
+          onClick={() => setCurrentView('engine')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-2 ${
+            currentView === 'engine'
+              ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md font-bold'
+              : 'text-sky-400 hover:text-sky-300 hover:bg-slate-900 border border-sky-500/20'
+          }`}
+        >
+          <Zap className="w-3.5 h-3.5 text-sky-400" />
+          ⚡ 100k Matchmaker Engine
         </button>
 
         <button
@@ -770,13 +785,25 @@ export function AdminDashboard() {
       {/* VIEW 2: SAFEPAY ESCROW DEALS LEDGER */}
       {currentView === 'deals' && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+          <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-200">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>
+                <strong>SafePay Escrow Checkout is Temporarily Paused:</strong> Online escrow holds are paused for the <code className="text-white font-mono bg-slate-900 px-1 rounded">www.floate.xyz</code> frontend handshake. Direct verified merchant WhatsApp link-ups are handling 100% of order volume.
+              </span>
+            </div>
+            <span className="font-mono text-[10px] bg-amber-900/60 text-amber-300 border border-amber-700 px-2.5 py-0.5 rounded-full shrink-0 font-bold self-start sm:self-center">
+              STATUS: PAUSED
+            </span>
+          </div>
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
                 <Package className="w-5 h-5 text-emerald-400" />
                 Floate SafePay Escrow Ledger
               </h3>
-              <p className="text-xs text-slate-400">Complete immutable record of all escrow transactions & release PINs</p>
+              <p className="text-xs text-slate-400">Complete immutable record of all escrow transactions & release PINs (Read-Only Ledger)</p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -1492,6 +1519,9 @@ export function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* VIEW 8: 100K MATCHMAKER & RECOMMENDATION ENGINE STUDIO */}
+      {currentView === 'engine' && <RecommendationEngineStudio />}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bot, Terminal, Code2, Globe, Store, ExternalLink, Sparkles, ShieldCheck, MapPin, ShoppingBag } from 'lucide-react';
+import { Bot, Terminal, Code2, Globe, Store, ExternalLink, Sparkles, ShieldCheck, MapPin, ShoppingBag, Zap } from 'lucide-react';
 import { BotTester } from './components/BotTester';
 import { ApiDocs } from './components/ApiDocs';
 import { WebSearchDemo } from './components/WebSearchDemo';
@@ -7,18 +7,24 @@ import { VisualAssetGallery } from './components/VisualAssetGallery';
 import { AdminDashboard } from './components/AdminDashboard';
 import { LiveVerificationPortal } from './components/LiveVerificationPortal';
 import { VendorStorefront } from './components/VendorStorefront';
+import { RecommendationEngineStudio } from './components/RecommendationEngineStudio';
+import { FrontendHandshakeHub } from './components/FrontendHandshakeHub';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'admin' | 'storefront' | 'verify' | 'search' | 'tester' | 'assets' | 'docs'>('admin');
+  const [activeTab, setActiveTab] = useState<'admin' | 'handshake' | 'engine' | 'storefront' | 'verify' | 'search' | 'tester' | 'assets' | 'docs'>('admin');
 
-  // Check URL parameters / path to auto-route to Storefront or Live Verification
+  // Check URL parameters / path to auto-route to Storefront, Handshake, or Live Verification
   useEffect(() => {
     const path = window.location.pathname;
     const search = window.location.search;
-    if (path.includes('/catalog/') || path.includes('/vendor/') || search.includes('prod=') || search.includes('vendor=')) {
+    if (path.includes('/handshake') || search.includes('handshake=') || path.includes('/floate-xyz')) {
+      setActiveTab('handshake');
+    } else if (path.includes('/catalog/') || path.includes('/vendor/') || search.includes('prod=') || search.includes('vendor=')) {
       setActiveTab('storefront');
     } else if (path.includes('/verify') || search.includes('phone=') || search.includes('verify=')) {
       setActiveTab('verify');
+    } else if (path.includes('/engine') || search.includes('engine=true')) {
+      setActiveTab('engine');
     }
   }, []);
 
@@ -55,6 +61,28 @@ export default function App() {
             >
               <ShieldCheck className="w-3.5 h-3.5" />
               Admin Dashboard
+            </button>
+            <button
+              onClick={() => setActiveTab('handshake')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeTab === 'handshake'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 shadow-md font-black'
+                  : 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/40 border border-emerald-500/30'
+              }`}
+            >
+              <Globe className="w-3.5 h-3.5" />
+              floate.xyz Handshake
+            </button>
+            <button
+              onClick={() => setActiveTab('engine')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeTab === 'engine'
+                  ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md font-black'
+                  : 'text-sky-400 hover:text-sky-300 hover:bg-sky-950/40 border border-sky-500/30'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              100k Matchmaker Engine
             </button>
             <button
               onClick={() => setActiveTab('storefront')}
@@ -105,7 +133,7 @@ export default function App() {
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${
                 activeTab === 'docs'
                   ? 'bg-sky-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
               }`}
             >
               <Code2 className="w-3.5 h-3.5" />
@@ -129,6 +157,8 @@ export default function App() {
       {/* Main Content Area */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {activeTab === 'admin' && <AdminDashboard />}
+        {activeTab === 'handshake' && <FrontendHandshakeHub />}
+        {activeTab === 'engine' && <RecommendationEngineStudio />}
         {activeTab === 'storefront' && <VendorStorefront />}
         {activeTab === 'verify' && <LiveVerificationPortal />}
         {activeTab === 'assets' && <VisualAssetGallery />}

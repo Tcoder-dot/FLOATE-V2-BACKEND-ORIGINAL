@@ -147,15 +147,34 @@ export const MERCHANT_ONBOARDING_FLOW_JSON = {
           },
           {
             type: 'Dropdown',
-            name: 'market_location',
-            label: 'Primary Market',
+            name: 'business_type',
+            label: 'Business Operation Model',
             required: true,
             'data-source': [
-              { id: 'alaba_intl_lagos', title: 'Alaba Int\'l Market (Lagos)' },
+              { id: 'physical_stall', title: '🏬 Physical Stall / Shop in Market' },
+              { id: 'dropshipper_online', title: '📦 Dropshipper / Online Merchant (No Shop)' },
+            ],
+          },
+          {
+            type: 'TextInput',
+            name: 'shop_address',
+            label: 'Shop Address (Recommended)',
+            required: false,
+            'input-type': 'text',
+            'helper-text': 'Recommended for physical stalls (e.g. Shop B14, Line 3). Leave blank if dropshipper.',
+          },
+          {
+            type: 'Dropdown',
+            name: 'market_location',
+            label: 'Primary Market / Hub',
+            required: true,
+            'data-source': [
+              { id: 'online_nationwide', title: '🌐 Online / Dropshipping (Nationwide)' },
+              { id: 'balogun_market_lagos', title: 'Balogun / Idumota (Lagos)' },
               { id: 'computer_village_lagos', title: 'Computer Village (Lagos)' },
+              { id: 'alaba_intl_lagos', title: 'Alaba Int\'l Market (Lagos)' },
               { id: 'onitsha_main_market', title: 'Onitsha Main Market' },
               { id: 'trade_fair_lagos', title: 'Trade Fair Complex (Lagos)' },
-              { id: 'balogun_market_lagos', title: 'Balogun / Idumota (Lagos)' },
               { id: 'ariaria_market_aba', title: 'Ariaria Int\'l Market (Aba)' },
               { id: 'wuse_market_abuja', title: 'Wuse Market (Abuja)' },
               { id: 'mile_12_lagos', title: 'Mile 12 Market (Lagos)' },
@@ -169,11 +188,11 @@ export const MERCHANT_ONBOARDING_FLOW_JSON = {
             label: 'Store Category',
             required: true,
             'data-source': [
+              { id: 'fashion_footwear', title: 'Fashion, Shoes, Bags & Purses' },
               { id: 'electronics_gadgets', title: 'Electronics & Audio' },
               { id: 'phones_laptops', title: 'Phones, PCs & Accessories' },
-              { id: 'fashion_footwear', title: 'Fashion, Shoes & Bags' },
-              { id: 'solar_inverter', title: 'Solar Panels & Inverters' },
               { id: 'beauty_hair', title: 'Beauty, Cosmetics & Hair' },
+              { id: 'solar_inverter', title: 'Solar Panels & Inverters' },
               { id: 'auto_parts', title: 'Automobile & Spare Parts' },
               { id: 'groceries_food', title: 'Food, Drinks & Groceries' },
               { id: 'home_appliances', title: 'Home & Kitchen Appliances' },
@@ -188,6 +207,8 @@ export const MERCHANT_ONBOARDING_FLOW_JSON = {
                 flow_action: 'REGISTER_MERCHANT',
                 owner_full_name: '${form.owner_full_name}',
                 business_name: '${form.business_name}',
+                business_type: '${form.business_type}',
+                shop_address: '${form.shop_address}',
                 market_location: '${form.market_location}',
                 category: '${form.category}',
               },
@@ -504,11 +525,16 @@ export async function handleFlowSubmission(params: {
 
     if (action === 'REGISTER_MERCHANT') {
       const ownerFullName = data.owner_full_name || senderName;
-      const businessName = data.business_name;
+      const businessName = data.business_name || 'Commercial Store';
+      const businessType = data.business_type || (data.shop_address ? 'physical_stall' : 'dropshipper_online');
+      const shopAddress = data.shop_address || '';
       const marketLocation = data.market_location || 'Lagos';
       const category = data.category || 'General Commercial';
       const payoutBank = data.payout_bank;
       const accountNumber = data.account_number;
+
+      const verificationRef = `FLT-VR-${Math.floor(100000 + Math.random() * 900000)}`;
+      const verificationToken = Buffer.from(`${senderPhone}_${Date.now()}`).toString('hex').slice(0, 24);
 
       // Save merchant profile directly to Firestore
       await firestoreDb.saveMerchant({
@@ -518,19 +544,45 @@ export async function handleFlowSubmission(params: {
         whatsapp: senderPhone,
         city: marketLocation,
         category,
+        businessModel: businessType,
+        shopAddress: shopAddress || undefined,
+        verificationRef,
+        verificationToken,
         ...(payoutBank ? { payoutBankName: payoutBank } : {}),
         ...(accountNumber ? { payoutAccountNumber: accountNumber } : {}),
-        isVerified: true,
-        identityVerified: true,
-        verifiedStatus: 'YES',
+        isVerified: false,
+        identityVerified: false,
+        verifiedStatus: 'PENDING',
+        verificationStatus: 'PENDING_VISUAL',
+        credit_balance: 25, // 25 free buyer leads upon onboarding
+        status: 'ACTIVE',
+        registeredAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       } as any);
+
+      // Create persistent verification session in Firestore
+      await firestoreDb.createVerificationSession({
+        id: verificationToken,
+        token: verificationToken,
+        ref: verificationRef,
+        phone: senderPhone,
+        businessName,
+        ownerFullName,
+        businessModel: businessType,
+        shopAddress: shopAddress || undefined,
+        marketLocation,
+        category,
+        status: 'PENDING_VISUAL',
+        createdAt: new Date().toISOString(),
+      });
 
       return {
         handled: true,
         action: 'REGISTER_MERCHANT',
-        summary: `Store "${businessName}" successfully registered for ${ownerFullName} (+${senderPhone})`,
-      };
+        summary: `Store "${businessName}" successfully registered for ${ownerFullName} (+${senderPhone}) with verification ref ${verificationRef}`,
+        verificationRef,
+        verificationToken,
+      } as any;
     }
 
     if (action === 'FILTER_MARKET_DIRECTORY') {

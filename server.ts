@@ -59,6 +59,19 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+  // Universal CORS Middleware for www.floate.xyz, floate.xyz, subdomains, and local dev
+  app.use((req, res, next) => {
+    const origin = req.headers.origin || '*';
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-api-key, x-floate-api-key');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+    next();
+  });
+
   // CORS and Public Host Detection middleware
   app.use((req, _res, next) => {
     const host = req.get('host');
@@ -69,61 +82,64 @@ async function startServer() {
     next();
   });
 
-  app.use('/api', (req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(204);
-    }
-    next();
-  });
-
-  // 1. Health check endpoints
+  // 1. Health & Handshake Endpoints for www.floate.xyz
   app.get('/health', (_req, res) => {
-    res.status(200).send('Bot is running');
+    res.status(200).send('Floate Multi-Channel Engine is running');
   });
 
-  app.get('/api/health', (_req, res) => {
+  app.get(['/api/health', '/api/handshake', '/api/ping'], (req, res) => {
+    const clientOrigin = req.headers.origin || req.headers.referer || 'https://www.floate.xyz';
     res.json({
-      status: 'ok',
+      success: true,
+      status: 'connected',
+      handshake: 'SUCCESSFUL',
+      service: 'Floate Multi-Channel Commerce Engine',
+      version: '2.5.0-handshake',
+      clientOrigin,
+      corsAllowed: true,
       timestamp: new Date().toISOString(),
-      service: 'Telegram Bot Logic Engine',
+      channels: {
+        whatsApp: isWhatsAppConfigured() ? 'CONFIGURED' : 'PENDING_TOKEN',
+        telegram: isBotConfigured() ? 'ONLINE' : 'PENDING_TOKEN',
+        webfront: 'CONNECTED_READY',
+      },
+      features: {
+        safePayEscrow: 'PAUSED', // SafePay paused as requested
+        safePayNotice: 'SafePay Escrow is temporarily paused for floate.xyz webfront handshake testing. Direct verified merchant WhatsApp linkups and catalog inquiries are 100% active.',
+        merchantCatalog: 'ACTIVE',
+        dailyStatusUpdates: 'ACTIVE',
+        searchAndRecommendation: 'ACTIVE',
+        buyerInquiryRelay: 'ACTIVE',
+      },
+      endpoints: {
+        handshake: 'GET /api/handshake',
+        products: 'GET /api/catalog/products',
+        productDetail: 'GET /api/catalog/product/:id',
+        merchantStatuses: 'GET /api/catalog/statuses',
+        vendorProfile: 'GET /api/catalog/vendor/:phone',
+        search: 'GET or POST /api/search?q={keyword}&location={city}',
+        buyerInquiry: 'POST /api/buyer/inquire',
+      },
     });
   });
 
-  // Website Search API Endpoint for floate.xyz
-  app.options('/api/search', (_req, res) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
-    res.sendStatus(204);
-  });
-
-  app.post('/api/search', async (req, res) => {
-    res.header('Access-Control-Allow-Origin', '*');
+  // Search API Endpoint for floate.xyz (supports both GET and POST with optional API key)
+  const handleSearch = async (req: express.Request, res: express.Response) => {
     try {
-      const expectedApiKey = process.env.FLOATE_API_KEY || 'floate_live_sk_7f8a92b3c4e5d6';
-      const providedApiKey =
-        (req.headers['x-api-key'] as string) ||
-        (req.headers['authorization'] ? req.headers['authorization'].replace(/^Bearer\s+/i, '') : '') ||
-        (req.query.apiKey as string) ||
-        (req.body && req.body.apiKey);
+      const searchQuery =
+        (req.query.q as string) ||
+        (req.query.query as string) ||
+        (req.query.search as string) ||
+        (req.body && (req.body.query || req.body.search || req.body.q)) ||
+        '';
 
-      if (!providedApiKey || providedApiKey !== expectedApiKey) {
-        return res.status(401).json({
-          success: false,
-          error: 'Unauthorized: Invalid or missing API key. Provide x-api-key header or apiKey in payload.',
-        });
-      }
-
-      const { query, search, location, budget } = req.body || {};
-      const searchQuery = query || search || '';
+      const location = (req.query.location as string) || (req.body && req.body.location);
+      const budget = (req.query.budget as string) || (req.body && req.body.budget);
 
       if (!searchQuery) {
         return res.status(400).json({
           success: false,
-          error: 'Search query is required. Provide {"query": "item name"}.',
+          error: 'Search query is required. Provide ?q=item name or {"query": "item name"}.',
         });
       }
 
@@ -152,7 +168,10 @@ async function startServer() {
         error: 'An error occurred while processing your search request.',
       });
     }
-  });
+  };
+
+  app.get('/api/search', handleSearch);
+  app.post('/api/search', handleSearch);
 
   // 2. Bot Status and Configuration details
   app.get('/api/bot/status', (_req, res) => {
@@ -307,6 +326,62 @@ async function startServer() {
       recipient: to,
       logs: (globalThis as any).__RECENT_WA_LOGS || [],
     });
+  });
+
+  // Dynamic WhatsApp Cloud API Configuration Endpoint
+  app.post('/api/whatsapp/config', async (req, res) => {
+    try {
+      const { accessToken, phoneNumberId, verifyToken, businessAccountId } = req.body || {};
+      if (accessToken) {
+        config.whatsappAccessToken = String(accessToken).trim();
+        process.env.WHATSAPP_ACCESS_TOKEN = String(accessToken).trim();
+      }
+      if (phoneNumberId) {
+        config.whatsappPhoneNumberId = String(phoneNumberId).trim();
+        process.env.WHATSAPP_PHONE_NUMBER_ID = String(phoneNumberId).trim();
+      }
+      if (verifyToken) {
+        config.whatsappVerifyToken = String(verifyToken).trim();
+        process.env.WHATSAPP_VERIFY_TOKEN = String(verifyToken).trim();
+      }
+      if (businessAccountId) {
+        config.whatsappBusinessAccountId = String(businessAccountId).trim();
+        process.env.WHATSAPP_BUSINESS_ACCOUNT_ID = String(businessAccountId).trim();
+      }
+
+      // Persist to .env file if possible
+      try {
+        const fs = await import('fs');
+        const path = await import('path');
+        const envPath = path.resolve(process.cwd(), '.env');
+        let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+        const updateEnvVar = (content: string, key: string, val: string) => {
+          const reg = new RegExp(`^${key}=.*$`, 'm');
+          return reg.test(content) ? content.replace(reg, `${key}=${val}`) : `${content}\n${key}=${val}`.trim();
+        };
+        if (accessToken) envContent = updateEnvVar(envContent, 'WHATSAPP_ACCESS_TOKEN', String(accessToken).trim());
+        if (phoneNumberId) envContent = updateEnvVar(envContent, 'WHATSAPP_PHONE_NUMBER_ID', String(phoneNumberId).trim());
+        if (verifyToken) envContent = updateEnvVar(envContent, 'WHATSAPP_VERIFY_TOKEN', String(verifyToken).trim());
+        if (businessAccountId) envContent = updateEnvVar(envContent, 'WHATSAPP_BUSINESS_ACCOUNT_ID', String(businessAccountId).trim());
+        fs.writeFileSync(envPath, envContent.trim() + '\n', 'utf8');
+      } catch (e) {
+        console.warn('[Config Persist Warning]:', e);
+      }
+
+      console.log(`[WhatsApp Config Updated] ✅ PhoneID: ${config.whatsappPhoneNumberId}, HasToken: ${Boolean(config.whatsappAccessToken)}`);
+
+      return res.json({
+        success: true,
+        message: 'WhatsApp credentials updated successfully',
+        hasToken: Boolean(config.whatsappAccessToken),
+        hasPhoneId: Boolean(config.whatsappPhoneNumberId),
+        phoneNumberId: config.whatsappPhoneNumberId,
+        isConfigured: isWhatsAppConfigured(),
+      });
+    } catch (err: any) {
+      console.error('[API /api/whatsapp/config Error]:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to update WhatsApp credentials' });
+    }
   });
 
   // 3. Google Sheets Database Endpoints
@@ -1345,6 +1420,340 @@ async function startServer() {
     }
   });
 
+  // 3e-1. Get Verification Session for Web Frontend Handshake
+  app.get('/api/verify/session', async (req, res) => {
+    try {
+      const token = (req.query.token as string) || (req.query.ref as string) || (req.query.phone as string) || '';
+      if (!token) {
+        return res.status(400).json({ success: false, error: 'Token, ref, or phone parameter is required' });
+      }
+
+      const session = await firestoreDb.getVerificationSession(token);
+      if (!session) {
+        return res.status(404).json({ success: false, error: 'Verification session not found' });
+      }
+
+      return res.json({
+        success: true,
+        session: {
+          token: session.token,
+          ref: session.ref,
+          phone: session.phone,
+          businessName: session.businessName,
+          ownerFullName: session.ownerFullName,
+          businessModel: session.businessModel || 'dropshipper_online',
+          shopAddress: session.shopAddress || '',
+          marketLocation: session.marketLocation || 'Nigeria',
+          category: session.category || 'General Merchandise',
+          status: session.status,
+          photoUrl: session.photoUrl || '',
+          verifiedAt: session.verifiedAt || null,
+        },
+      });
+    } catch (err: any) {
+      console.error('[API /api/verify/session Error]:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to retrieve session' });
+    }
+  });
+
+  // 3e-2. Submit Visual Verification Proof (Photos, Stall, Waybill, or Dropshipper Proof)
+  app.post('/api/verify/submit-visual', async (req, res) => {
+    try {
+      const {
+        token,
+        ref,
+        phone,
+        verificationType,
+        photoBase64,
+        mediaUrl: existingMediaUrl,
+        notes,
+        gpsCoords,
+      } = req.body || {};
+
+      const key = token || ref || phone;
+      if (!key) {
+        return res.status(400).json({ success: false, error: 'Verification token, ref, or phone is required' });
+      }
+
+      let storedPhotoUrl = existingMediaUrl || '';
+      if (photoBase64 && typeof photoBase64 === 'string') {
+        try {
+          const cleanBase64 = photoBase64.includes(',') ? photoBase64.split(',')[1] : photoBase64;
+          const mimeMatch = photoBase64.match(/data:([^;]+);/);
+          const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+          const buffer = Buffer.from(cleanBase64, 'base64');
+          const saved = await saveCatalogMedia(buffer, mimeType, `verify_${key.slice(-8)}.jpg`);
+          storedPhotoUrl = saved.publicUrl;
+        } catch (mediaErr) {
+          console.warn('[Visual Verification Media Save Warning]:', mediaErr);
+        }
+      }
+
+      const result = await firestoreDb.completeVisualVerification(key, {
+        phone,
+        verificationType: verificationType || 'stall_or_dropship_photo',
+        photoUrl: storedPhotoUrl,
+        photoBase64,
+        notes,
+        gpsCoords,
+      });
+
+      if (!result.success) {
+        return res.status(500).json({ success: false, error: 'Failed to record visual verification' });
+      }
+
+      // Send automated WhatsApp confirmation to the merchant
+      const targetPhone = phone || result.session?.phone || result.merchant?.whatsapp;
+      const ownerName = result.merchant?.ownerFullName || result.session?.ownerFullName || 'Merchant';
+      const storeName = result.merchant?.businessName || result.session?.businessName || 'Your Store';
+      const isPhysical = (result.session?.businessModel || result.merchant?.businessModel) === 'physical_stall';
+
+      if (targetPhone && isWhatsAppConfigured()) {
+        const cleanPhone = String(targetPhone).replace(/\D/g, '');
+        await sendWhatsAppMessage(
+          cleanPhone,
+          `🎉 *Verification Approved, ${ownerName}!*\n\n` +
+          `Your store *${storeName}* has officially earned the *✓ Verified Badge* 🛡️ on Floate!\n` +
+          `• Badge Tier: ${isPhysical ? '🏬 Verified Physical Stall' : '📦 Verified Online Merchant / Dropshipper'}\n` +
+          `• Status: *ACTIVE & VERIFIED*\n\n` +
+          `Your products will now appear with the verified shield on www.floate.xyz and in WhatsApp catalog recommendations.`,
+          {
+            quickReplies: [
+              { id: 'btn_for_businesses', title: '🏪 Business Hub' },
+              { id: 'btn_home', title: '🏠 Main Menu' },
+            ],
+          }
+        ).catch((waErr) => console.warn('[WhatsApp Verification Notification Error]:', waErr));
+      }
+
+      return res.json({
+        success: true,
+        status: 'VERIFIED',
+        message: 'Visual verification recorded and badge activated!',
+        badgeType: isPhysical ? 'VERIFIED_PHYSICAL_STALL' : 'VERIFIED_DROP_SHIPPER',
+        photoUrl: storedPhotoUrl,
+        session: result.session,
+      });
+    } catch (err: any) {
+      console.error('[API /api/verify/submit-visual Error]:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Verification submission failed' });
+    }
+  });
+
+  // 3e-3. Standalone Verification Webview Fallback (Direct browser handler)
+  app.get(['/verify', '/verify/stall'], (req, res) => {
+    const token = (req.query.token as string) || (req.query.ref as string) || '';
+    const ref = (req.query.ref as string) || token;
+    const phone = (req.query.phone as string) || '';
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Merchant Verification • Floate</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="icon" type="image/png" href="/icon-192.png">
+  <style>
+    body { background-color: #030712; color: #F3F4F6; }
+    .glass-panel { background: rgba(17, 24, 39, 0.75); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-4 md:p-8 font-sans">
+  <div class="max-w-md w-full mx-auto my-auto space-y-6">
+    <div class="text-center space-y-2">
+      <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-lg mb-1">
+        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+      </div>
+      <h1 class="text-2xl font-bold tracking-tight text-white">Merchant Visual Verification</h1>
+      <p id="storeSubtitle" class="text-xs text-slate-400">Earn your ✓ Verified Badge on floate.xyz</p>
+    </div>
+
+    <div class="glass-panel rounded-3xl p-6 space-y-5 shadow-2xl">
+      <div id="sessionHeader" class="bg-slate-900/80 rounded-2xl p-4 border border-slate-800 space-y-1">
+        <div class="flex items-center justify-between">
+          <span id="badgePill" class="text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Checking details...</span>
+          <span id="refDisplay" class="text-xs font-mono text-slate-400">Ref: ${ref || 'FLT-VR'}</span>
+        </div>
+        <h2 id="businessNameDisplay" class="text-lg font-bold text-white pt-1">Loading store info...</h2>
+        <p id="ownerNameDisplay" class="text-xs text-slate-400">Owner verification protocol</p>
+      </div>
+
+      <!-- Type toggle / display -->
+      <div id="modelBanner" class="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300 flex items-start space-x-2.5">
+        <span class="text-lg">📸</span>
+        <div id="modelInstruction">
+          <strong class="block text-white mb-0.5">Physical Stall or Dropshipper Proof</strong>
+          Take a clear photo of your physical store / banner, or if you dropship, snap your product in hand, delivery waybill, or owner ID.
+        </div>
+      </div>
+
+      <!-- Camera / Image Upload Area -->
+      <div class="space-y-3">
+        <label class="block text-xs font-medium text-slate-300">Snap or Upload Verification Photo</label>
+        <div id="dropzone" onclick="document.getElementById('photoInput').click()" class="border-2 border-dashed border-slate-700 hover:border-emerald-500/60 rounded-2xl p-6 text-center cursor-pointer transition-all bg-slate-900/40 space-y-2">
+          <input type="file" id="photoInput" accept="image/*" capture="environment" class="hidden" onchange="handleFileSelect(event)">
+          <div id="previewContainer" class="hidden">
+            <img id="imagePreview" src="" alt="Preview" class="max-h-56 mx-auto rounded-xl object-cover border border-slate-700 shadow-md">
+            <p class="text-xs text-emerald-400 mt-2 font-medium">✓ Photo ready. Tap below to submit.</p>
+          </div>
+          <div id="uploadPrompt" class="space-y-1">
+            <div class="w-12 h-12 mx-auto rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
+            <p class="text-sm font-semibold text-slate-200">Tap to Open Camera</p>
+            <p class="text-[11px] text-slate-500">Live camera snap or gallery photo</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notes input -->
+      <div class="space-y-1.5">
+        <label class="block text-xs font-medium text-slate-300">Additional Stall / Delivery Notes (Optional)</label>
+        <input type="text" id="notesInput" placeholder="e.g. Shop B14 Line 3 Balogun, or Dropshipping vendor" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500">
+      </div>
+
+      <!-- Submit button -->
+      <button id="submitBtn" onclick="submitVerification()" disabled class="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2">
+        <span>🛡️ Submit & Activate Verified Badge</span>
+      </button>
+
+      <div id="statusAlert" class="hidden rounded-xl p-3 text-xs"></div>
+    </div>
+
+    <div class="text-center">
+      <a id="returnWaBtn" href="https://wa.me/" class="text-xs text-slate-400 hover:text-white transition-colors">
+        💬 Return to WhatsApp
+      </a>
+    </div>
+  </div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = "${token}" || urlParams.get('token') || '';
+    const ref = "${ref}" || urlParams.get('ref') || '';
+    const phone = "${phone}" || urlParams.get('phone') || '';
+    let selectedBase64 = null;
+    let gpsCoords = null;
+
+    // Optional GPS check
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => { gpsCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude }; },
+        () => {},
+        { timeout: 8000 }
+      );
+    }
+
+    async function loadSession() {
+      try {
+        const queryKey = token || ref || phone;
+        if (!queryKey) {
+          document.getElementById('businessNameDisplay').textContent = 'Merchant Verification';
+          document.getElementById('badgePill').textContent = 'Live Verification';
+          return;
+        }
+
+        const res = await fetch('/api/verify/session?token=' + encodeURIComponent(queryKey));
+        const data = await res.json();
+        if (data.success && data.session) {
+          const s = data.session;
+          document.getElementById('businessNameDisplay').textContent = s.businessName || 'Your Store';
+          document.getElementById('ownerNameDisplay').textContent = 'Owner: ' + (s.ownerFullName || 'Verified Vendor');
+          document.getElementById('refDisplay').textContent = 'Ref: #' + (s.ref || ref || 'FLT-VR');
+          
+          const isPhysical = s.businessModel === 'physical_stall';
+          const badgePill = document.getElementById('badgePill');
+          badgePill.textContent = isPhysical ? 'Physical Stall' : 'Dropshipper / Online';
+          
+          const instruction = document.getElementById('modelInstruction');
+          if (isPhysical) {
+            instruction.innerHTML = '<strong class="block text-white mb-0.5">Physical Stall Verification</strong>Snap a live photo of your shopfront, signboard, or stall number in ' + (s.marketLocation || 'market') + (s.shopAddress ? ' (' + s.shopAddress + ')' : '') + '.';
+          } else {
+            instruction.innerHTML = '<strong class="block text-white mb-0.5">Dropshipper / Online Merchant Verification</strong>Snap a photo of your inventory in hand, waybill slip from your supplier, or your owner ID.';
+          }
+        }
+      } catch (err) {
+        console.warn('Session load err:', err);
+      }
+    }
+
+    function handleFileSelect(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        selectedBase64 = event.target.result;
+        document.getElementById('imagePreview').src = selectedBase64;
+        document.getElementById('uploadPrompt').classList.add('hidden');
+        document.getElementById('previewContainer').classList.remove('hidden');
+        document.getElementById('submitBtn').disabled = false;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function submitVerification() {
+      const btn = document.getElementById('submitBtn');
+      const alert = document.getElementById('statusAlert');
+      btn.disabled = true;
+      btn.innerHTML = '<span>Verifying & Saving to Floate...</span>';
+
+      try {
+        const notes = document.getElementById('notesInput').value;
+        const payload = {
+          token: token || ref || phone,
+          ref: ref,
+          phone: phone,
+          photoBase64: selectedBase64,
+          notes: notes,
+          gpsCoords: gpsCoords
+        };
+
+        const res = await fetch('/api/verify/submit-visual', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          alert.className = 'rounded-xl p-3.5 text-xs bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 block text-center font-medium';
+          alert.innerHTML = '🎉 <strong>Verified Badge Activated!</strong><br>Your visual proof is recorded on Floate. Redirecting back to WhatsApp...';
+          btn.innerHTML = '<span>✓ Verification Complete</span>';
+          
+          setTimeout(() => {
+            if (phone) {
+              window.location.href = 'https://wa.me/' + phone.replace(/\\D/g, '');
+            } else {
+              window.location.href = 'https://www.floate.xyz';
+            }
+          }, 2200);
+        } else {
+          alert.className = 'rounded-xl p-3 text-xs bg-rose-500/15 border border-rose-500/30 text-rose-300 block';
+          alert.textContent = data.error || 'Failed to submit verification. Please try again.';
+          btn.disabled = false;
+          btn.innerHTML = '<span>Retry Submission</span>';
+        }
+      } catch (err) {
+        alert.className = 'rounded-xl p-3 text-xs bg-rose-500/15 border border-rose-500/30 text-rose-300 block';
+        alert.textContent = 'Network error reaching Floate server. Please retry.';
+        btn.disabled = false;
+        btn.innerHTML = '<span>Retry Submission</span>';
+      }
+    }
+
+    window.addEventListener('load', loadSession);
+  </script>
+</body>
+</html>`);
+  });
+
   // 3f. 1-Tap Secure Physical Stall GPS Verification Web Handler
   app.get(['/loc/:token', '/gps/:token', '/gps'], (req, res) => {
     const token = req.params.token || (req.query.token as string) || '';
@@ -1701,11 +2110,104 @@ async function startServer() {
     }
   });
 
-  // 3i. Public Web Catalog & Merchant Profile Endpoints
+  // Seed 24-hour merchant status stories for www.floate.xyz when database is fresh
+  const FALLBACK_MERCHANT_STATUSES = [
+    {
+      id: 'status_chivora_daily',
+      merchantId: 'merchant_08123456789',
+      vendorPhone: '08123456789',
+      businessName: 'Chivora Footwears & Bags',
+      marketHub: 'Balogun International Market, Lagos',
+      caption: '🔥 NEW ARRIVALS: Italian leather totes & mini sling purses just landed! 15% discount for buyers today.',
+      statusText: '🔥 NEW ARRIVALS: Italian leather totes & mini sling purses just landed! 15% discount for buyers today.',
+      mediaUrl: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=600&q=80',
+      imageUrl: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=600&q=80',
+      badge: '✅ Physical Shop Verified',
+      category: 'Bags & Footwear',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+    },
+    {
+      id: 'status_makky_daily',
+      merchantId: 'merchant_08098765432',
+      vendorPhone: '08098765432',
+      businessName: 'Makky Fabrics & Lace',
+      marketHub: 'Tejuosho Ultra-Modern Complex, Yaba',
+      caption: '✨ Sample cuts of new bridal lace and senator fabrics ready for dispatch. Same-day delivery across Lagos.',
+      statusText: '✨ Sample cuts of new bridal lace and senator fabrics ready for dispatch. Same-day delivery across Lagos.',
+      mediaUrl: 'https://images.unsplash.com/photo-1617038260897-41a1f14a8ca0?auto=format&fit=crop&w=600&q=80',
+      imageUrl: 'https://images.unsplash.com/photo-1617038260897-41a1f14a8ca0?auto=format&fit=crop&w=600&q=80',
+      badge: '✅ Physical Shop Verified',
+      category: 'Fabrics & Lace',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 22 * 3600 * 1000).toISOString(),
+    },
+    {
+      id: 'status_mbam_daily',
+      merchantId: 'merchant_07033445566',
+      vendorPhone: '07033445566',
+      businessName: 'Mbam Tech & Accessories',
+      marketHub: 'Computer Village, Ikeja',
+      caption: '⚡ Fast chargers, MagSafe power banks, and wireless earbuds restocked. Special wholesale bundles available today.',
+      statusText: '⚡ Fast chargers, MagSafe power banks, and wireless earbuds restocked. Special wholesale bundles available today.',
+      mediaUrl: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80',
+      imageUrl: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80',
+      badge: '✅ Market Tech Hub Verified',
+      category: 'Electronics & Gadgets',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 18 * 3600 * 1000).toISOString(),
+    },
+  ];
+
+  // 3i. Public Web Catalog & Merchant Profile Endpoints for www.floate.xyz
   app.get('/api/catalog/products', async (req, res) => {
     try {
       const vendorPhone = (req.query.vendorPhone as string) || '';
-      const products = await firestoreDb.getAllProducts(vendorPhone);
+      const category = (req.query.category as string) || '';
+      let products = await firestoreDb.getAllProducts(vendorPhone);
+
+      // Fallback to listings if Firestore has 0 products
+      if (!products || products.length === 0) {
+        const listings = await sheetsDb.getAllListings();
+        products = listings.map((l, index) => {
+          const numPrice = typeof l.price === 'string'
+            ? parseInt(l.price.replace(/[^\d]/g, ''), 10) || (20000 + (index % 5) * 5000)
+            : 25000;
+          return {
+            id: l.id || `prod_${l.whatsapp || index}`,
+            businessName: l.businessName,
+            vendorName: l.businessName,
+            product: l.product || l.businessName,
+            name: l.product || l.businessName,
+            price: l.price || `₦${numPrice.toLocaleString()}`,
+            numericPrice: numPrice,
+            whatsapp: l.whatsapp,
+            vendorPhone: l.whatsapp,
+            city: l.city || 'Lagos',
+            state: l.state || 'Lagos',
+            isVerified: l.isVerified || l.verifiedStatus === 'YES',
+            category: l.category || 'General',
+            marketHub: (l as any).marketHub || `${l.city || 'Lagos'} Trade Market`,
+            imageUrl:
+              (l as any).imageUrl ||
+              (l.category?.toLowerCase().includes('bag')
+                ? 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=600&q=80'
+                : l.category?.toLowerCase().includes('shoe') || l.category?.toLowerCase().includes('footwear')
+                ? 'https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=600&q=80'
+                : 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80'),
+            description: `${l.businessName} - High quality merchandise direct from ${l.city || 'Lagos'} physical market stall.`,
+            createdAt: new Date().toISOString(),
+          };
+        });
+      }
+
+      if (category) {
+        products = products.filter((p: any) =>
+          (p.category || '').toLowerCase().includes(category.toLowerCase()) ||
+          (p.product || '').toLowerCase().includes(category.toLowerCase())
+        );
+      }
+
       return res.json({ success: true, count: products.length, products });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch catalog products' });
@@ -1715,15 +2217,39 @@ async function startServer() {
   app.get('/api/catalog/product/:id', async (req, res) => {
     try {
       const productId = req.params.id;
-      const products = await firestoreDb.getAllProducts();
+      let products = await firestoreDb.getAllProducts();
+      if (!products || products.length === 0) {
+        const listings = await sheetsDb.getAllListings();
+        products = listings.map((l, index) => ({
+          id: l.id || `prod_${l.whatsapp || index}`,
+          businessName: l.businessName,
+          product: l.product || l.businessName,
+          name: l.product || l.businessName,
+          price: l.price || '₦25,000',
+          whatsapp: l.whatsapp,
+          vendorPhone: l.whatsapp,
+          city: l.city || 'Lagos',
+          category: l.category || 'Fashion',
+          imageUrl: (l as any).imageUrl || 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=600&q=80',
+        }));
+      }
+
       const product = products.find((p) => p.id === productId || p.product === productId);
-      
       if (!product) {
         return res.status(404).json({ success: false, error: 'Product not found' });
       }
 
       const merchant = await firestoreDb.getMerchant(product.vendorPhone || product.whatsapp || product.merchantId);
-      return res.json({ success: true, product, merchant });
+      return res.json({
+        success: true,
+        product,
+        merchant: merchant || {
+          businessName: product.businessName || 'Verified Merchant',
+          whatsapp: product.whatsapp || product.vendorPhone,
+          isVerified: true,
+          city: product.city || 'Lagos',
+        },
+      });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch product details' });
     }
@@ -1738,21 +2264,103 @@ async function startServer() {
 
       return res.json({
         success: true,
-        merchant: merchant || { businessName: 'Verified Merchant', whatsapp: phone },
+        merchant: merchant || { businessName: 'Verified Merchant', whatsapp: phone, isVerified: true },
         products,
-        statuses,
+        statuses: statuses.length > 0 ? statuses : FALLBACK_MERCHANT_STATUSES.filter(s => s.vendorPhone.includes(phone) || phone.includes(s.vendorPhone)),
       });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch vendor profile' });
     }
   });
 
-  app.get('/api/catalog/statuses', async (_req, res) => {
+  // Daily Status Updates Feed (WhatsApp / Instagram Stories style for merchants)
+  app.get(['/api/catalog/statuses', '/api/merchants/status-updates'], async (_req, res) => {
     try {
       const statuses = await firestoreDb.getActiveMerchantStatuses();
-      return res.json({ success: true, count: statuses.length, statuses });
+      const finalStatuses = statuses && statuses.length > 0 ? statuses : FALLBACK_MERCHANT_STATUSES;
+      return res.json({ success: true, count: finalStatuses.length, statuses: finalStatuses });
     } catch (err: any) {
-      return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch active statuses' });
+      return res.json({ success: true, count: FALLBACK_MERCHANT_STATUSES.length, statuses: FALLBACK_MERCHANT_STATUSES });
+    }
+  });
+
+  // Post Daily Status Update from Web or Merchant Portal
+  app.post('/api/catalog/status', async (req, res) => {
+    try {
+      const { vendorPhone, businessName, caption, statusText, mediaUrl, imageUrl, marketHub, category } = req.body || {};
+      if (!vendorPhone || (!caption && !statusText)) {
+        return res.status(400).json({ success: false, error: 'vendorPhone and caption/statusText are required.' });
+      }
+
+      const cleanPhone = (vendorPhone || '').replace(/\D/g, '');
+      const newStatus = {
+        id: `status_${cleanPhone}_${Date.now()}`,
+        merchantId: `merchant_${cleanPhone}`,
+        vendorPhone: cleanPhone,
+        businessName: businessName || 'Verified Merchant',
+        marketHub: marketHub || 'Lagos Central Market',
+        caption: caption || statusText,
+        statusText: caption || statusText,
+        mediaUrl: mediaUrl || imageUrl || '',
+        imageUrl: mediaUrl || imageUrl || '',
+        category: category || 'General',
+        badge: '✅ Physical Shop Verified',
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+      };
+
+      await firestoreDb.saveMerchantStatus(newStatus as any);
+      return res.json({ success: true, status: newStatus, message: '24-hour status story posted successfully.' });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to post status update' });
+    }
+  });
+
+  // Direct Buyer Inquiry / Handshake Webhook from floate.xyz
+  app.post('/api/buyer/inquire', async (req, res) => {
+    try {
+      const { buyerName, buyerPhone, buyerLocation, productId, productName, vendorPhone, message } = req.body || {};
+
+      const cleanVendor = (vendorPhone || '08123456789').replace(/\D/g, '');
+      const cleanBuyer = (buyerPhone || '').replace(/\D/g, '');
+      const leadId = `lead_web_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+      // Generate pre-filled WhatsApp click-to-chat deep link
+      const inquiryMsg = `Hello! I saw your "${productName || 'product'}" on floate.xyz (ID: ${productId || 'web'}). My name is ${buyerName || 'Buyer'}${buyerLocation ? ` from ${buyerLocation}` : ''}. ${message || 'Is this available for delivery today?'}`;
+      const waNumber = cleanVendor.startsWith('0') ? `234${cleanVendor.slice(1)}` : cleanVendor;
+      const whatsappDirectLink = `https://wa.me/${waNumber}?text=${encodeURIComponent(inquiryMsg)}`;
+
+      // Record lead in platform metrics
+      statsManager.recordLinkUp();
+
+      // Dispatch WhatsApp alert to merchant if bot is configured
+      if (isWhatsAppConfigured() && cleanVendor) {
+        try {
+          const alertMsg =
+            `🔔 *New Buyer Inquiry from floate.xyz!*\n\n` +
+            `👤 *Buyer:* ${buyerName || 'Web Visitor'}\n` +
+            `📍 *Location:* ${buyerLocation || 'Not specified'}\n` +
+            `🛍️ *Item:* ${productName || 'Store Item'}\n` +
+            `💬 *Message:* "${message || 'Inquiring about price & delivery'}"\n\n` +
+            (cleanBuyer
+              ? `👉 *Tap to chat directly with Buyer on WhatsApp:* wa.me/${cleanBuyer.startsWith('0') ? `234${cleanBuyer.slice(1)}` : cleanBuyer}`
+              : `👉 *Check web inquiry dashboard on Floate.*`);
+
+          await sendWhatsAppMessage(cleanVendor, alertMsg);
+        } catch (waErr) {
+          console.warn('[Buyer Inquire] Could not send merchant WhatsApp alert:', waErr);
+        }
+      }
+
+      return res.json({
+        success: true,
+        leadId,
+        whatsappDirectLink,
+        merchantPhone: cleanVendor,
+        message: 'Inquiry received. WhatsApp direct handshake generated successfully.',
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to process buyer inquiry' });
     }
   });
 

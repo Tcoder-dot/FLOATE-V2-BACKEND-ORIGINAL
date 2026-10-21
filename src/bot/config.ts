@@ -12,7 +12,9 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '3000', 10),
   // WhatsApp Cloud API (Meta Graph API)
-  whatsappAccessToken: process.env.WHATSAPP_ACCESS_TOKEN || '',
+  whatsappAccessToken:
+    process.env.WHATSAPP_ACCESS_TOKEN ||
+    'EAAa9fW5px2gBSZBdV1Klbrp2FnNWy0iIkJDcb8qBC48ZCyG5ZAmgFdsoxebeBcTOjzq3pJLZCPVJxW3bFQmYwiPTZBaYdZC8ZCjvArVl46SYbTYmRBHBI3xudksiBbNqtbrPP4sJfBky2DVbz8Uwl4dFAv24DwYgrAFjVw8ykJD3YiSNi9VX32twZCZCDg2zmFxLZBMwZDZD',
   whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '1290427334158497',
   whatsappVerifyToken: process.env.WHATSAPP_VERIFY_TOKEN || 'floate_wa_verify_token_2026',
   whatsappBusinessAccountId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || '',

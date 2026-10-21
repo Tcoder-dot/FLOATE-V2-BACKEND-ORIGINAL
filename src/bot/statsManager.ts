@@ -25,6 +25,11 @@ class StatsManager {
     this.stats.errorsCount++;
   }
 
+  public recordLinkUp() {
+    this.stats.updatesProcessed++;
+    this.recordCommand('buyer_inquiry_linkup');
+  }
+
   public getStats() {
     return {
       ...this.stats,

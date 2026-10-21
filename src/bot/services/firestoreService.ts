@@ -10,6 +10,7 @@ import {
   getDocs,
   query,
   where,
+  limit,
   runTransaction,
 } from 'firebase/firestore';
 import fs from 'fs';
@@ -199,8 +200,36 @@ export interface MerchantDoc {
   verificationStatus?: string;
   marketHub?: string;
   shopAddress?: string;
+  businessModel?: 'physical_stall' | 'dropshipper_online' | string;
+  verificationRef?: string;
+  verificationToken?: string;
+  visualProofUrl?: string;
+  visualProofBase64?: string;
+  visualVerifiedAt?: string;
+  badgeType?: string;
   registeredAt?: string;
   updatedAt: string;
+}
+
+export interface VisualVerificationSessionDoc {
+  id: string; // Token or Ref
+  token: string;
+  ref: string;
+  phone: string;
+  businessName: string;
+  ownerFullName: string;
+  businessModel: 'physical_stall' | 'dropshipper_online' | string;
+  shopAddress?: string;
+  marketLocation?: string;
+  category?: string;
+  status: 'PENDING_VISUAL' | 'VERIFIED' | 'REJECTED';
+  verificationType?: string;
+  photoUrl?: string;
+  photoBase64?: string;
+  notes?: string;
+  gpsCoords?: { lat: number; lng: number };
+  createdAt: string;
+  verifiedAt?: string;
 }
 
 export interface ReferralDoc {
@@ -2720,6 +2749,143 @@ export class FirestoreService {
     } catch (err) {
       console.error(`[Firestore Atomic Webhook Claim Error] for ${docId}:`, err);
       return { success: false, alreadyProcessed: false, docId };
+    }
+  }
+
+  /**
+   * Creates or updates a Visual Verification Session in Firestore
+   */
+  public async createVerificationSession(session: VisualVerificationSessionDoc): Promise<void> {
+    try {
+      const docId = session.token || session.ref || session.id;
+      const payload = {
+        ...session,
+        id: docId,
+        updatedAt: new Date().toISOString(),
+      };
+      await setDoc(doc(db, 'verification_sessions', docId), this.sanitizeForFirestore(payload), { merge: true });
+      if (session.ref && session.ref !== docId) {
+        await setDoc(doc(db, 'verification_sessions', session.ref), this.sanitizeForFirestore(payload), { merge: true });
+      }
+    } catch (err) {
+      console.error('[Firestore] Error creating verification session:', err);
+    }
+  }
+
+  /**
+   * Retrieves a Visual Verification Session by token, ref, or phone
+   */
+  public async getVerificationSession(tokenOrRef: string): Promise<VisualVerificationSessionDoc | null> {
+    try {
+      if (!tokenOrRef) return null;
+      const key = String(tokenOrRef).trim();
+      const s = await getDoc(doc(db, 'verification_sessions', key));
+      if (s.exists()) {
+        return s.data() as VisualVerificationSessionDoc;
+      }
+
+      // Query by ref or token field
+      const qRef = query(collection(db, 'verification_sessions'), where('ref', '==', key), limit(1));
+      const snapRef = await getDocs(qRef);
+      if (!snapRef.empty) {
+        return snapRef.docs[0].data() as VisualVerificationSessionDoc;
+      }
+
+      const qToken = query(collection(db, 'verification_sessions'), where('token', '==', key), limit(1));
+      const snapToken = await getDocs(qToken);
+      if (!snapToken.empty) {
+        return snapToken.docs[0].data() as VisualVerificationSessionDoc;
+      }
+
+      // Fallback: check merchant record by phone
+      const merchant = await this.getMerchant(key);
+      if (merchant) {
+        return {
+          id: merchant.id,
+          token: merchant.verificationToken || merchant.id,
+          ref: merchant.verificationRef || `FLT-VR-${merchant.id.slice(-6)}`,
+          phone: merchant.whatsapp || merchant.id,
+          businessName: merchant.businessName,
+          ownerFullName: merchant.ownerFullName || 'Store Owner',
+          businessModel: (merchant.businessModel as any) || (merchant.shopAddress ? 'physical_stall' : 'dropshipper_online'),
+          shopAddress: merchant.shopAddress,
+          marketLocation: merchant.city || merchant.marketHub,
+          category: merchant.category,
+          status: merchant.isVerified ? 'VERIFIED' : 'PENDING_VISUAL',
+          createdAt: merchant.registeredAt || new Date().toISOString(),
+          verifiedAt: merchant.visualVerifiedAt,
+        };
+      }
+
+      return null;
+    } catch (err) {
+      console.error('[Firestore] Error retrieving verification session:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Completes visual verification, updates session and merchant documents, activates Verified Badge
+   */
+  public async completeVisualVerification(
+    tokenOrRef: string,
+    submission: {
+      phone?: string;
+      verificationType?: string;
+      photoUrl?: string;
+      photoBase64?: string;
+      notes?: string;
+      gpsCoords?: { lat: number; lng: number };
+    }
+  ): Promise<{ success: boolean; session?: VisualVerificationSessionDoc; merchant?: MerchantDoc }> {
+    try {
+      const session = await this.getVerificationSession(tokenOrRef);
+      const phone = submission.phone || session?.phone || tokenOrRef;
+      const merchant = await this.getMerchant(phone);
+
+      const verifiedAt = new Date().toISOString();
+      const isPhysical = (session?.businessModel || merchant?.businessModel) === 'physical_stall';
+      const badgeType = isPhysical ? 'VERIFIED_PHYSICAL_STALL' : 'VERIFIED_DROP_SHIPPER';
+
+      // 1. Update session doc
+      if (session) {
+        const updatedSession: VisualVerificationSessionDoc = {
+          ...session,
+          status: 'VERIFIED',
+          verificationType: submission.verificationType || (isPhysical ? 'stall_photo' : 'dropshipper_proof'),
+          photoUrl: submission.photoUrl || session.photoUrl,
+          photoBase64: submission.photoBase64 ? submission.photoBase64.slice(0, 500) + '...' : undefined,
+          notes: submission.notes,
+          gpsCoords: submission.gpsCoords,
+          verifiedAt,
+        };
+        await setDoc(doc(db, 'verification_sessions', session.id), this.sanitizeForFirestore(updatedSession), { merge: true });
+        if (session.token && session.token !== session.id) {
+          await setDoc(doc(db, 'verification_sessions', session.token), this.sanitizeForFirestore(updatedSession), { merge: true });
+        }
+      }
+
+      // 2. Update merchant profile in Firestore
+      if (merchant) {
+        const updatedMerchant: MerchantDoc = {
+          ...merchant,
+          isVerified: true,
+          identityVerified: true,
+          verifiedStatus: 'YES',
+          status: 'ACTIVE',
+          badgeType,
+          visualProofUrl: submission.photoUrl || merchant.visualProofUrl,
+          visualVerifiedAt: verifiedAt,
+          updatedAt: verifiedAt,
+        };
+        await this.saveMerchant(updatedMerchant);
+        return { success: true, session: session || undefined, merchant: updatedMerchant };
+      }
+
+      return { success: true, session: session || undefined };
+    } catch (err) {
+      console.error('[Firestore] Error completing visual verification:', err);
+      return { success: false };
     }
   }
 

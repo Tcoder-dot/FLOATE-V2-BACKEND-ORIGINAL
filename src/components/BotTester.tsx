@@ -379,7 +379,7 @@ export function BotTester() {
               { label: '✨ Viral SafePay Card', val: 'btn_viral_card', highlight: true },
               { label: '👋 "Hi" (First Contact)', val: 'Hi' },
               { label: '1️⃣ Select Option #1', val: '1' },
-              { label: '🔒 Floate SafePay', val: 'btn_safepay' },
+              { label: '🔒 SafePay (Paused)', val: 'btn_safepay' },
               { label: '✅ I Have Paid', val: 'btn_safepay_paid' },
               { label: '🚪 End Chat', val: 'end chat' },
               { label: '🏪 Merchant Hub', val: 'vendor_hub' },
