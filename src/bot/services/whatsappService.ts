@@ -156,6 +156,13 @@ export function getAppBaseUrl(): string {
   return 'https://ais-dev-doffhubcs26lvvc5toaulh-156196353029.europe-west2.run.app';
 }
 
+export function getFrontendWebUrl(): string {
+  if (process.env.FRONTEND_URL && process.env.FRONTEND_URL.startsWith('http')) {
+    return process.env.FRONTEND_URL.replace(/\/+$/, '');
+  }
+  return 'https://floate.xyz';
+}
+
 export interface GpsVerificationTokenRecord {
   token: string;
   phone: string;
@@ -1164,8 +1171,8 @@ export async function startFloateDirectHandoff(buyerPhone: string, buyerName: st
     console.warn('[Direct Customer Credit Deduction Warning]:', err);
   }
 
-  const prodPermalink = `${getAppBaseUrl()}/catalog/${bizId}`;
-  const vendorStoreUrl = `${getAppBaseUrl()}/vendor/${vendorPhone}`;
+  const prodPermalink = `${getFrontendWebUrl()}/catalog/${bizId}`;
+  const vendorStoreUrl = `${getFrontendWebUrl()}/vendor/${vendorPhone}`;
 
   let vendorDetailMsg =
     `*Vendor Details*\n` +
@@ -4429,8 +4436,8 @@ export async function processMasterWhatsAppEngine(params: {
       userId: cleanPhone,
       businessName: merchant?.businessName || senderName,
       whatsapp: cleanPhone,
-      state: merchant?.state || 'Lagos',
-      city: merchant?.city || 'Lagos',
+      state: merchant?.state || '',
+      city: merchant?.city || '',
       category: merchant?.category || 'General',
       product: currentPending.productName,
       price: currentPending.price || 'Contact for Price',
@@ -4438,8 +4445,8 @@ export async function processMasterWhatsAppEngine(params: {
       specs: description,
     });
 
-    const productPermalink = `${getAppBaseUrl()}/catalog/${savedProd.id}`;
-    const webStoreUrl = `${getAppBaseUrl()}/vendor/${cleanPhone}`;
+    const productPermalink = `${getFrontendWebUrl()}/catalog/${savedProd.id}`;
+    const webStoreUrl = `${getFrontendWebUrl()}/vendor/${cleanPhone}`;
 
     updateWhatsAppSession(cleanPhone, {
       state: 'IDLE',
@@ -4496,7 +4503,7 @@ export async function processMasterWhatsAppEngine(params: {
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     });
 
-    const webStoreUrl = `${getAppBaseUrl()}/vendor/${cleanPhone}`;
+    const webStoreUrl = `${getFrontendWebUrl()}/vendor/${cleanPhone}`;
     await sendWhatsAppMessage(
       cleanPhone,
       `✨ *24-Hour Status Story Published!* 📲\n` +
@@ -7045,7 +7052,7 @@ async function execute10CardSearch(toPhone: string, senderName: string, params: 
     const priceDisplay = formatListingPrice(v.price);
     const locString = v.city ? v.city : (v.state ? v.state : 'Nigeria');
     const prodId = v.id || `prod_${v.whatsapp}`;
-    const directCatalogUrl = `${getAppBaseUrl()}/catalog/${prodId}`;
+    const directCatalogUrl = `${getFrontendWebUrl()}/catalog/${prodId}`;
 
     listMsg += `*${i + 1}. ${v.businessName}* (${locString})\n`;
     if (v.product) {
@@ -10173,7 +10180,7 @@ async function startConversationalRegistration(
     ? '1KVA Hybrid Inverter - 180k\n300W Monocrystalline Solar Panel - 65k\n200Ah Tubular Solar Battery - 280k'
     : 'Men Leather Slippers - 15k\nChelsea Boots - 35k\nCasual Sneakers - 25k';
 
-  const baseUrl = getAppBaseUrl();
+  const baseUrl = getFrontendWebUrl();
   const webRegUrl = `${baseUrl}/register?phone=${encodeURIComponent(cleanPhone)}&name=${encodeURIComponent(senderName || '')}&biz=${encodeURIComponent(businessName || '')}`;
 
   const promptMsg =

@@ -69,7 +69,122 @@ export function AdminDashboard() {
   const [lastRefreshed, setLastRefreshed] = useState<string>('');
 
   // Sub-tab Navigation
-  const [currentView, setCurrentView] = useState<'overview' | 'engine' | 'deals' | 'relays' | 'merchants' | 'buyers' | 'channels' | 'flows'>('overview');
+  const [currentView, setCurrentView] = useState<'overview' | 'engine' | 'deals' | 'relays' | 'merchants' | 'buyers' | 'channels' | 'flows' | 'ads'>('overview');
+
+  // Ads & Sponsorships State
+  const [adminAds, setAdminAds] = useState<any[]>([]);
+  const [selectedAdForBanner, setSelectedAdForBanner] = useState<any>(null);
+  const [bannerUploadInput, setBannerUploadInput] = useState('');
+  const [bannerTargetUrlInput, setBannerTargetUrlInput] = useState('');
+  const [adActionStatus, setAdActionStatus] = useState<string | null>(null);
+  const [isAdModalOpen, setIsAdModalOpen] = useState(false);
+  const [editingAd, setEditingAd] = useState<any>(null);
+  const [adForm, setAdForm] = useState({
+    id: '',
+    merchantName: '',
+    headline: '',
+    description: '',
+    adType: 'BUSINESS_AD',
+    targetUrl: '',
+    status: 'ACTIVE',
+    designedBannerUrl: '',
+    rawImageUrl: '',
+  });
+
+  const handleOpenCreateAd = () => {
+    setEditingAd(null);
+    setAdForm({
+      id: '',
+      merchantName: '',
+      headline: '',
+      description: '',
+      adType: 'BUSINESS_AD',
+      targetUrl: '',
+      status: 'ACTIVE',
+      designedBannerUrl: '',
+      rawImageUrl: '',
+    });
+    setIsAdModalOpen(true);
+  };
+
+  const handleOpenEditAd = (ad: any) => {
+    setEditingAd(ad);
+    setAdForm({
+      id: ad.id || '',
+      merchantName: ad.merchantName || '',
+      headline: ad.headline || ad.title || '',
+      description: ad.description || ad.subtitle || '',
+      adType: ad.adType || 'BUSINESS_AD',
+      targetUrl: ad.targetUrl || '',
+      status: ad.status || 'ACTIVE',
+      designedBannerUrl: ad.designedBannerUrl || '',
+      rawImageUrl: ad.rawImageUrl || '',
+    });
+    setIsAdModalOpen(true);
+  };
+
+  const handleSaveAdSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/admin/ads/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(adForm),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAdActionStatus('✅ Ad campaign saved successfully!');
+        setIsAdModalOpen(false);
+        fetchAdminData();
+      } else {
+        setAdActionStatus(`❌ ${data.error || 'Failed to save ad'}`);
+      }
+    } catch (err: any) {
+      setAdActionStatus(`❌ Error: ${err?.message}`);
+    } finally {
+      setTimeout(() => setAdActionStatus(null), 4000);
+    }
+  };
+
+  const handleToggleAdStatus = async (adId: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
+    try {
+      const res = await fetch(`/api/admin/ads/${adId}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAdActionStatus(`✅ Ad status updated to ${newStatus}`);
+        fetchAdminData();
+      } else {
+        setAdActionStatus(`❌ ${data.error || 'Failed to update status'}`);
+      }
+    } catch (err: any) {
+      setAdActionStatus(`❌ Error: ${err?.message}`);
+    } finally {
+      setTimeout(() => setAdActionStatus(null), 4000);
+    }
+  };
+
+  const handleDeleteAd = async (adId: string) => {
+    if (!window.confirm('Are you sure you want to delete this ad campaign?')) return;
+    try {
+      const res = await fetch(`/api/admin/ads/${adId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setAdActionStatus('✅ Ad campaign deleted successfully');
+        fetchAdminData();
+      } else {
+        setAdActionStatus(`❌ ${data.error || 'Failed to delete ad'}`);
+      }
+    } catch (err: any) {
+      setAdActionStatus(`❌ Error: ${err?.message}`);
+    } finally {
+      setTimeout(() => setAdActionStatus(null), 4000);
+    }
+  };
 
   // Filters & Search
   const [dealSearch, setDealSearch] = useState('');
@@ -212,6 +327,16 @@ export function AdminDashboard() {
 
         // 4. Flows status
         fetchFlowsStatus(),
+
+        // 5. Ads & Sponsorships
+        fetch('/api/admin/ads')
+          .then((res) => (res.ok ? res.json() : null))
+          .then((adsData) => {
+            if (adsData && adsData.success) {
+              setAdminAds(adsData.ads || []);
+            }
+          })
+          .catch((e) => console.warn('[Admin Dashboard] Ads fetch notice:', e)),
       ]);
 
       setLastRefreshed(new Date().toLocaleTimeString());
@@ -219,6 +344,50 @@ export function AdminDashboard() {
       console.warn('[Admin Dashboard] Telemetry sync notice:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleApproveAd = async (adId: string) => {
+    try {
+      const res = await fetch(`/api/admin/ads/${adId}/approve`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setAdActionStatus('✅ Ad approved and published live!');
+        fetchAdminData();
+      } else {
+        setAdActionStatus(`❌ ${data.error || 'Failed to approve ad'}`);
+      }
+    } catch (err: any) {
+      setAdActionStatus(`❌ Error: ${err?.message}`);
+    } finally {
+      setTimeout(() => setAdActionStatus(null), 4000);
+    }
+  };
+
+  const handleUploadAdBanner = async (adId: string) => {
+    try {
+      const res = await fetch(`/api/admin/ads/${adId}/upload-banner`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          designedBanner: bannerUploadInput,
+          targetUrl: bannerTargetUrlInput,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAdActionStatus('✅ Designed banner uploaded successfully!');
+        setSelectedAdForBanner(null);
+        setBannerUploadInput('');
+        setBannerTargetUrlInput('');
+        fetchAdminData();
+      } else {
+        setAdActionStatus(`❌ ${data.error || 'Failed to upload banner'}`);
+      }
+    } catch (err: any) {
+      setAdActionStatus(`❌ Error: ${err?.message}`);
+    } finally {
+      setTimeout(() => setAdActionStatus(null), 4000);
     }
   };
 
@@ -600,6 +769,18 @@ export function AdminDashboard() {
         >
           <Zap className="w-3.5 h-3.5 text-amber-400" />
           WhatsApp Flows Deployer
+        </button>
+
+        <button
+          onClick={() => setCurrentView('ads')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-2 ${
+            currentView === 'ads'
+              ? 'bg-amber-500 text-slate-950 shadow-md font-bold'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+          }`}
+        >
+          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+          Ads & Sponsorships ({adminAds.length})
         </button>
       </div>
 
@@ -1517,6 +1698,395 @@ export function AdminDashboard() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* VIEW: ADS & SPONSORSHIPS MANAGEMENT */}
+      {currentView === 'ads' && (
+        <div className="space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-amber-400" />
+                  Sponsored Ads & Campaign Management
+                </h3>
+                <span className="bg-amber-950 text-amber-300 border border-amber-800 text-[10px] font-mono px-2 py-0.5 rounded-full font-bold">
+                  {adminAds.length} CAMPAIGNS
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                Manage brand ads, vendor ads, and product ads. Review user-submitted ad images for manual designer export/download, toggle active status on frontend carousels, and track impressions & clicks.
+              </p>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <button
+                onClick={handleOpenCreateAd}
+                className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-md transition-all active:scale-95"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                + Create / Add Ad
+              </button>
+              <button
+                onClick={fetchAdminData}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-2 border border-slate-700 transition-all active:scale-95"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Refresh Ads
+              </button>
+            </div>
+          </div>
+
+          {adActionStatus && (
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-slate-200">
+              {adActionStatus}
+            </div>
+          )}
+
+          {adminAds.length === 0 ? (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <h4 className="text-sm font-bold text-slate-200">No Active Ad Campaigns Found</h4>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                Create brand ads, vendor ads, or product ads manually or review user-submitted ad campaigns here.
+              </p>
+              <button
+                onClick={handleOpenCreateAd}
+                className="mt-2 px-4 py-2 bg-amber-500 text-slate-950 font-bold text-xs rounded-xl"
+              >
+                + Create First Ad Campaign
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {adminAds.map((ad) => (
+                <div key={ad.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4 flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                        {ad.adType || 'BUSINESS_AD'}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleToggleAdStatus(ad.id, ad.status)}
+                          className={`text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold transition-all ${
+                            ad.status === 'ACTIVE'
+                              ? 'bg-emerald-950 text-emerald-300 border border-emerald-800 hover:bg-emerald-900'
+                              : 'bg-amber-950 text-amber-300 border border-amber-800 hover:bg-amber-900'
+                          }`}
+                          title="Click to toggle status active/paused"
+                        >
+                          {ad.status === 'ACTIVE' ? '🟢 ACTIVE (Click to Pause)' : '⏸️ PAUSED (Click to Activate)'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-100">{ad.headline || ad.title || ad.merchantName || 'Sponsored Promotion'}</h4>
+                      <p className="text-xs text-slate-400 font-medium">{ad.merchantName}</p>
+                      <p className="text-xs text-slate-400 mt-1 line-clamp-2">{ad.description || ad.subtitle || 'Promoted placement'}</p>
+                    </div>
+
+                    {/* User-Submitted Raw Image / Designed Banner Previews */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {/* User Submitted Raw Image */}
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-slate-400 font-mono block">USER SUBMITTED AD</span>
+                        {ad.rawImageUrl ? (
+                          <div className="relative rounded-xl overflow-hidden border border-slate-800 h-24 bg-slate-950 group">
+                            <img src={ad.rawImageUrl} alt="User Ad" className="w-full h-full object-cover" />
+                            <a
+                              href={ad.rawImageUrl}
+                              download={`ad_user_${ad.id}.jpg`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs text-white font-bold transition-opacity gap-1"
+                            >
+                              📥 Download
+                            </a>
+                          </div>
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-slate-800 h-24 bg-slate-950/40 flex items-center justify-center text-slate-600 text-[10px]">
+                            No raw image
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Designed Banner */}
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-slate-400 font-mono block">DESIGNER BANNER</span>
+                        {ad.designedBannerUrl ? (
+                          <div className="relative rounded-xl overflow-hidden border border-slate-800 h-24 bg-slate-950 group">
+                            <img src={ad.designedBannerUrl} alt="Designed Banner" className="w-full h-full object-cover" />
+                            <a
+                              href={ad.designedBannerUrl}
+                              download={`banner_${ad.id}.jpg`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs text-white font-bold transition-opacity gap-1"
+                            >
+                              📥 Download
+                            </a>
+                          </div>
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-slate-800 h-24 bg-slate-950/40 flex flex-col items-center justify-center text-slate-500 text-[10px] p-1 text-center">
+                            <span>Pending Designer</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Telemetry Metrics */}
+                    <div className="grid grid-cols-2 gap-2 text-xs bg-slate-950 p-2.5 rounded-xl border border-slate-800/80 font-mono">
+                      <div>
+                        <span className="text-slate-500 block text-[10px]">IMPRESSIONS</span>
+                        <span className="text-slate-200 font-bold">{ad.impressions || 0}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[10px]">CLICKS</span>
+                        <span className="text-amber-400 font-bold">{ad.clicks || 0}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="space-y-2 pt-3 border-t border-slate-800">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => handleOpenEditAd(ad)}
+                        className="py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-xl flex items-center justify-center gap-1 border border-slate-700 transition-all active:scale-95"
+                      >
+                        ✏️ Edit Ad
+                      </button>
+                      <button
+                        onClick={() => handleDeleteAd(ad.id)}
+                        className="py-2 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-semibold text-xs rounded-xl flex items-center justify-center gap-1 border border-rose-800/60 transition-all active:scale-95"
+                      >
+                        🗑️ Delete
+                      </button>
+                    </div>
+
+                    {ad.status !== 'ACTIVE' && (
+                      <button
+                        onClick={() => handleApproveAd(ad.id)}
+                        className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Approve & Publish Ad
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setSelectedAdForBanner(ad);
+                        setBannerUploadInput(ad.designedBannerUrl || '');
+                        setBannerTargetUrlInput(ad.targetUrl || '');
+                      }}
+                      className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 border border-slate-700 transition-all active:scale-95"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      {ad.designedBannerUrl ? 'Update Designed Banner' : 'Upload Designed Banner'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Ad Create / Edit Modal */}
+          {isAdModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-lg w-full space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    {editingAd ? 'Edit Ad Campaign' : 'Create New Ad Campaign'}
+                  </h4>
+                  <button
+                    onClick={() => setIsAdModalOpen(false)}
+                    className="text-slate-400 hover:text-slate-200 text-xs font-mono bg-slate-800 px-2.5 py-1 rounded-lg"
+                  >
+                    ✕ Close
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveAdSubmit} className="space-y-3 text-xs">
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Ad Type</label>
+                    <select
+                      value={adForm.adType}
+                      onChange={(e) => setAdForm((prev) => ({ ...prev, adType: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono text-xs focus:border-amber-500 focus:outline-none"
+                    >
+                      <option value="BUSINESS_AD">Brand / Business Ad</option>
+                      <option value="VENDOR_AD">Vendor Ad</option>
+                      <option value="PRODUCT_AD">Product Ad</option>
+                      <option value="BRAND_SPONSOR">Brand Sponsor</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Merchant / Brand Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Chivora Ventures & Stores"
+                      value={adForm.merchantName}
+                      onChange={(e) => setAdForm((prev) => ({ ...prev, merchantName: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Headline / Title</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Bulk Foodstuff & Provisions in Enugu"
+                      value={adForm.headline}
+                      onChange={(e) => setAdForm((prev) => ({ ...prev, headline: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Description / Subtitle</label>
+                    <textarea
+                      rows={2}
+                      placeholder="Promotional details or offer description..."
+                      value={adForm.description}
+                      onChange={(e) => setAdForm((prev) => ({ ...prev, description: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Target Click-Through URL</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. https://wa.me/2348030000000"
+                      value={adForm.targetUrl}
+                      onChange={(e) => setAdForm((prev) => ({ ...prev, targetUrl: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono text-xs focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">User Submitted Raw Image URL (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="https://images.unsplash.com/... or data URI"
+                      value={adForm.rawImageUrl}
+                      onChange={(e) => setAdForm((prev) => ({ ...prev, rawImageUrl: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono text-xs focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Designer Banner URL (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="https://images.unsplash.com/... or data URI"
+                      value={adForm.designedBannerUrl}
+                      onChange={(e) => setAdForm((prev) => ({ ...prev, designedBannerUrl: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono text-xs focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Status</label>
+                    <select
+                      value={adForm.status}
+                      onChange={(e) => setAdForm((prev) => ({ ...prev, status: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono text-xs focus:border-amber-500 focus:outline-none"
+                    >
+                      <option value="ACTIVE">ACTIVE (Live on Frontend)</option>
+                      <option value="PAUSED">PAUSED</option>
+                      <option value="PENDING_DESIGN">PENDING DESIGN REVIEW</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setIsAdModalOpen(false)}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all"
+                    >
+                      Save & Publish Ad Campaign
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Banner Upload Modal / Drawer */}
+          {selectedAdForBanner && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-lg w-full space-y-4 shadow-2xl">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    Upload Designed Banner for {selectedAdForBanner.title || selectedAdForBanner.merchantName}
+                  </h4>
+                  <button
+                    onClick={() => setSelectedAdForBanner(null)}
+                    className="text-slate-400 hover:text-slate-200 text-xs font-mono bg-slate-800 px-2.5 py-1 rounded-lg"
+                  >
+                    ✕ Close
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Designed Banner URL or Data URI (JPEG/PNG)</label>
+                    <input
+                      type="text"
+                      placeholder="https://images.unsplash.com/... or data:image/jpeg;base64,..."
+                      value={bannerUploadInput}
+                      onChange={(e) => setBannerUploadInput(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono text-xs focus:border-amber-500 focus:outline-none"
+                    />
+                    <p className="text-[11px] text-slate-500 mt-1">Provide a high-res image URL or Base64 graphic for the storefront banner carousel.</p>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Target Click-Through URL (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. https://wa.me/2348012345678 or store link"
+                      value={bannerTargetUrlInput}
+                      onChange={(e) => setBannerTargetUrlInput(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono text-xs focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                  <button
+                    onClick={() => setSelectedAdForBanner(null)}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleUploadAdBanner(selectedAdForBanner.id)}
+                    className="px-5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all"
+                  >
+                    Save & Publish Banner
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

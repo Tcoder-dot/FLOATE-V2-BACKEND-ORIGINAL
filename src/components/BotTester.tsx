@@ -314,8 +314,8 @@ export function BotTester() {
           <div className="flex items-center gap-2 overflow-x-auto pb-1">
             <span className="text-emerald-400 font-semibold text-[11px] uppercase tracking-wider whitespace-nowrap">🔍 Search & 10-Card:</span>
             {[
-              { label: '👟 Slippers in Onitsha (Spotlight: Chivora)', val: 'Leather slippers in Onitsha' },
-              { label: '📱 iPhones in Ikeja (Spotlight: MBAMS)', val: 'iPhones in Computer Village Lagos' },
+              { label: '👟 Slippers in Enugu (Spotlight: Chivora)', val: 'Leather slippers in Enugu' },
+              { label: '📱 iPhones in Enugu (Spotlight: MBAMS)', val: 'iPhones in Enugu' },
               { label: '👜 Bags in Balogun (Spotlight: Jules)', val: 'Designer handbags in Balogun Lagos' },
               { label: '💍 Luxury & Perfumes (Spotlight: Makky)', val: 'Perfumes and jewelry in Nigeria' },
               { label: '💻 Laptops in Lagos', val: 'HP Core i7 laptops in Ikeja' },

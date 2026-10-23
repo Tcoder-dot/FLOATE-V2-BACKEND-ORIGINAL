@@ -174,6 +174,48 @@
         "completedAt": { "type": "string" }
       },
       "required": ["id", "referrerPhone", "referredPhone", "status", "createdAt"]
+    },
+    "ads": {
+      "title": "Ads",
+      "description": "Merchant and brand banner advertisements with telemetry and design workflow",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "merchantPhone": { "type": "string" },
+        "merchantName": { "type": "string" },
+        "adType": { "type": "string", "enum": ["BUSINESS_AD", "PRODUCT_AD", "SALES_AD", "BRAND_SPONSOR"] },
+        "headline": { "type": "string" },
+        "description": { "type": "string" },
+        "offerText": { "type": "string" },
+        "rawImageUrl": { "type": "string" },
+        "designedBannerUrl": { "type": "string" },
+        "targetUrl": { "type": "string" },
+        "targetCategory": { "type": "string" },
+        "targetLocation": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING_DESIGN", "ACTIVE", "PAUSED", "EXPIRED"] },
+        "impressions": { "type": "number" },
+        "clicks": { "type": "number" },
+        "budget": { "type": "number" },
+        "submittedVia": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "approvedAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "headline", "status", "createdAt"]
+    },
+    "auth_otps": {
+      "title": "Authentication OTPs",
+      "description": "WhatsApp-based 4-digit verification codes for merchant login and onboarding",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "phone": { "type": "string" },
+        "otp": { "type": "string" },
+        "attempts": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "expiresAt": { "type": "string" }
+      },
+      "required": ["id", "phone", "otp", "expiresAt"]
     }
   }
 }

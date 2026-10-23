@@ -15,6 +15,12 @@ export interface MatchedVendorResult {
   product: string;
   price: string;
   location: string;
+  city?: string;
+  state?: string;
+  phone?: string;
+  whatsapp?: string;
+  webStoreUrl: string;
+  whatsappChatUrl: string;
   isVerified: boolean;
   isHighlyRecommended?: boolean;
   verifiedStatus: 'YES' | 'PENDING';
@@ -118,7 +124,8 @@ export function parseSearchDeepLinkPayload(payload: string): { query: string; lo
 }
 
 function formatResultItem(listing: BusinessListing): MatchedVendorResult {
-  const cleanPhone = listing.whatsapp || '';
+  const rawPhone = listing.whatsapp || '';
+  const cleanPhone = rawPhone.replace(/\D/g, '');
   const city = listing.city || '';
   const state = listing.state || '';
   const locationStr = [city, state].filter(Boolean).join(', ') || 'Nigeria';
@@ -131,10 +138,19 @@ function formatResultItem(listing: BusinessListing): MatchedVendorResult {
   const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'Floatebusinessbot';
   const deepLink = `https://t.me/${botUsername}?start=connect_${slug}`;
 
-  const botWaPhone = process.env.WHATSAPP_PHONE_NUMBER || '2348000000000';
-  const cleanBotWaPhone = botWaPhone.replace(/\D/g, '');
   const floateWaMeLink = process.env.WHATSAPP_DIRECT_LINK || 'https://wa.me/message/YYWEZAZZIXBRF1';
   const waDeepLink = `${floateWaMeLink}?text=CONNECT_VENDOR_${encodeURIComponent(listingId)}`;
+
+  const frontendBase = process.env.FRONTEND_URL || 'https://floate.xyz';
+  const webStoreUrl = `${frontendBase.replace(/\/+$/, '')}/vendor/${cleanPhone}`;
+
+  let waDigits = cleanPhone;
+  if (waDigits.startsWith('0')) {
+    waDigits = '234' + waDigits.slice(1);
+  } else if (!waDigits.startsWith('234') && waDigits.length <= 10) {
+    waDigits = '234' + waDigits;
+  }
+  const whatsappChatUrl = `https://wa.me/${waDigits}?text=${encodeURIComponent(`HI ${businessName.toUpperCase()}, I found you on FLOATE.`)}`;
 
   return {
     id: listingId,
@@ -142,6 +158,12 @@ function formatResultItem(listing: BusinessListing): MatchedVendorResult {
     product: listing.product || '',
     price: listing.price || 'Negotiable',
     location: locationStr,
+    city,
+    state,
+    phone: cleanPhone,
+    whatsapp: cleanPhone,
+    webStoreUrl,
+    whatsappChatUrl,
     isVerified: Boolean(listing.isVerified || listing.verifiedStatus === 'YES'),
     isHighlyRecommended: Boolean(listing.isHighlyRecommended || isSpotlightBusiness(businessName)),
     verifiedStatus: listing.verifiedStatus || 'YES',
@@ -149,7 +171,7 @@ function formatResultItem(listing: BusinessListing): MatchedVendorResult {
     listingType: listing.listingType || 'Product',
     telegramDeepLink: deepLink,
     whatsappDeepLink: waDeepLink,
-    continueUrl: deepLink,
+    continueUrl: webStoreUrl,
     profileImageUrl: listing.profileImageUrl || undefined,
     productImages: listing.productImages && listing.productImages.length > 0 ? listing.productImages : undefined,
     identityVerified: Boolean(listing.identityVerified),
@@ -239,6 +261,14 @@ export async function executeSearch(input: SearchInput): Promise<SearchExecution
   }
 
   for (const match of categoryMatches) {
+    if (!seenIds.has(match.id)) {
+      seenIds.add(match.id);
+      combinedResults.push(match);
+    }
+  }
+
+  // Also include out-of-area / nationwide delivery merchants who stock the item so buyers always see verified merchants
+  for (const match of outOfAreaRecommendations) {
     if (!seenIds.has(match.id)) {
       seenIds.add(match.id);
       combinedResults.push(match);

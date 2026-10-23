@@ -207,7 +207,43 @@ export interface MerchantDoc {
   visualProofBase64?: string;
   visualVerifiedAt?: string;
   badgeType?: string;
+  profilePhotoUrl?: string;
+  addressType?: 'Shop Address' | 'Home Address' | string;
+  addressDetail?: string;
+  cacInfo?: string;
   registeredAt?: string;
+  updatedAt: string;
+}
+
+export interface AuthOtpDoc {
+  id: string; // phone
+  phone: string;
+  otp: string;
+  attempts: number;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface AdDoc {
+  id: string; // e.g. ad_123456
+  merchantPhone?: string;
+  merchantName?: string;
+  adType: 'BUSINESS_AD' | 'PRODUCT_AD' | 'SALES_AD' | 'BRAND_SPONSOR';
+  headline: string;
+  description?: string;
+  offerText?: string;
+  rawImageUrl?: string;
+  designedBannerUrl?: string;
+  targetUrl?: string;
+  targetCategory?: string;
+  targetLocation?: string;
+  status: 'PENDING_DESIGN' | 'ACTIVE' | 'PAUSED' | 'EXPIRED';
+  impressions: number;
+  clicks: number;
+  budget?: number;
+  submittedVia: 'WHATSAPP' | 'TELEGRAM' | 'ADMIN_MANUAL' | 'WEB';
+  createdAt: string;
+  approvedAt?: string;
   updatedAt: string;
 }
 
@@ -699,6 +735,10 @@ export class FirestoreService {
             const updates: Partial<MerchantDoc> = {
               updatedAt: new Date().toISOString(),
             };
+            if (listing.businessName) updates.businessName = listing.businessName;
+            if (listing.state) updates.state = listing.state;
+            if (listing.city) updates.city = listing.city;
+            if (listing.category) updates.category = listing.category;
             if (listing.ownerFullName) updates.ownerFullName = listing.ownerFullName;
             if (listing.userId !== undefined) updates.userId = listing.userId;
             if (tgId !== undefined) updates.telegramId = tgId;
@@ -4517,6 +4557,214 @@ export class FirestoreService {
       console.warn('[Firestore] Error fetching products:', err);
       return [];
     }
+  }
+
+  /**
+   * Save auth OTP for WhatsApp login
+   */
+  public async saveAuthOtp(phone: string, otp: string): Promise<void> {
+    const cleanPhone = normalizePhone(phone);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const otpDoc: AuthOtpDoc = {
+      id: cleanPhone,
+      phone: cleanPhone,
+      otp,
+      attempts: 0,
+      createdAt: new Date().toISOString(),
+      expiresAt,
+    };
+    await setDoc(doc(db, 'auth_otps', cleanPhone), this.sanitizeForFirestore(otpDoc));
+  }
+
+  /**
+   * Verify WhatsApp auth OTP
+   */
+  public async verifyAuthOtp(phone: string, otp: string): Promise<boolean> {
+    const cleanPhone = normalizePhone(phone);
+    const docRef = doc(db, 'auth_otps', cleanPhone);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return false;
+    const data = snap.data() as AuthOtpDoc;
+    const now = new Date().toISOString();
+    if (data.expiresAt < now) return false;
+    if (data.otp !== otp.trim()) {
+      await updateDoc(docRef, { attempts: (data.attempts || 0) + 1 });
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Get all merchants with PENDING_REVIEW status
+   */
+  public async getPendingMerchants(): Promise<MerchantDoc[]> {
+    try {
+      const snap = await getDocs(collection(db, 'merchants'));
+      const list: MerchantDoc[] = [];
+      snap.forEach((d) => {
+        const data = d.data() as MerchantDoc;
+        if (data.status === 'PENDING_REVIEW' || data.verifiedStatus === 'PENDING' || data.isVerified === false) {
+          list.push({ ...data, id: d.id });
+        }
+      });
+      return list.sort((a, b) => new Date(b.updatedAt || b.registeredAt || 0).getTime() - new Date(a.updatedAt || a.registeredAt || 0).getTime());
+    } catch (e) {
+      console.warn('[Firestore] getPendingMerchants error:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Verify merchant by admin
+   */
+  public async verifyMerchantByAdmin(merchantIdOrPhone: string): Promise<boolean> {
+    const cleanPhone = normalizePhone(merchantIdOrPhone);
+    const docRef = doc(db, 'merchants', cleanPhone);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) {
+      const merchants = await this.getAllMerchantsList();
+      const found = merchants.find(m => normalizePhone(m.whatsapp || m.id) === cleanPhone || m.id === merchantIdOrPhone);
+      if (found) {
+        await updateDoc(doc(db, 'merchants', found.id), this.sanitizeForFirestore({
+          status: 'ACTIVE',
+          isVerified: true,
+          verifiedStatus: 'YES',
+          identityVerified: true,
+          updatedAt: new Date().toISOString(),
+        }));
+        return true;
+      }
+      return false;
+    }
+    await updateDoc(docRef, this.sanitizeForFirestore({
+      status: 'ACTIVE',
+      isVerified: true,
+      verifiedStatus: 'YES',
+      identityVerified: true,
+      updatedAt: new Date().toISOString(),
+    }));
+    return true;
+  }
+
+  /**
+   * Reject merchant by admin
+   */
+  public async rejectMerchantByAdmin(merchantIdOrPhone: string, reason?: string): Promise<boolean> {
+    const cleanPhone = normalizePhone(merchantIdOrPhone);
+    const docRef = doc(db, 'merchants', cleanPhone);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return false;
+    await updateDoc(docRef, this.sanitizeForFirestore({
+      status: 'INACTIVE',
+      isVerified: false,
+      verifiedStatus: 'REJECTED',
+      updatedAt: new Date().toISOString(),
+    }));
+    return true;
+  }
+
+  /**
+   * Save Ad document
+   */
+  public async saveAdDoc(ad: AdDoc): Promise<void> {
+    await setDoc(doc(db, 'ads', ad.id), this.sanitizeForFirestore(ad));
+  }
+
+  /**
+   * Get Ad document
+   */
+  public async getAdDoc(id: string): Promise<AdDoc | null> {
+    const snap = await getDoc(doc(db, 'ads', id));
+    if (!snap.exists()) return null;
+    return snap.data() as AdDoc;
+  }
+
+  /**
+   * Get all active banner ads for frontend display
+   */
+  public async getActiveBannerAds(): Promise<AdDoc[]> {
+    try {
+      const snap = await getDocs(collection(db, 'ads'));
+      const list: AdDoc[] = [];
+      snap.forEach((d) => {
+        const data = d.data() as AdDoc;
+        if (data.status === 'ACTIVE') {
+          list.push({ ...data, id: d.id });
+        }
+      });
+      return list.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+    } catch (e) {
+      console.warn('[Firestore] getActiveBannerAds error:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Get all ads for admin dashboard
+   */
+  public async getAllAdsForAdmin(): Promise<AdDoc[]> {
+    try {
+      const snap = await getDocs(collection(db, 'ads'));
+      const list: AdDoc[] = [];
+      snap.forEach((d) => {
+        const listData = d.data() as AdDoc;
+        list.push({ ...listData, id: d.id });
+      });
+      return list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    } catch (e) {
+      console.warn('[Firestore] getAllAdsForAdmin error:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Update ad document
+   */
+  public async updateAdDoc(id: string, updates: Partial<AdDoc>): Promise<void> {
+    await updateDoc(doc(db, 'ads', id), this.sanitizeForFirestore({
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    }));
+  }
+
+  /**
+   * Record ad impression
+   */
+  public async recordAdImpression(id: string): Promise<void> {
+    try {
+      const ref = doc(db, 'ads', id);
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        const data = snap.data() as AdDoc;
+        await updateDoc(ref, { impressions: (data.impressions || 0) + 1 });
+      }
+    } catch (e) {
+      console.warn('[Firestore] recordAdImpression error:', e);
+    }
+  }
+
+  /**
+   * Record ad click
+   */
+  public async recordAdClick(id: string): Promise<void> {
+    try {
+      const ref = doc(db, 'ads', id);
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        const data = snap.data() as AdDoc;
+        await updateDoc(ref, { clicks: (data.clicks || 0) + 1 });
+      }
+    } catch (e) {
+      console.warn('[Firestore] recordAdClick error:', e);
+    }
+  }
+
+  /**
+   * Delete ad document
+   */
+  public async deleteAdDoc(id: string): Promise<void> {
+    const { deleteDoc } = await import('firebase/firestore');
+    await deleteDoc(doc(db, 'ads', id));
   }
 }
 

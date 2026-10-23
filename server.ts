@@ -7,7 +7,7 @@ import { config, isBotConfigured, isWhatsAppConfigured, isMonnifyConfigured } fr
 import { getBotInstance } from './src/bot/bot.js';
 import { statsManager } from './src/bot/statsManager.js';
 import { processSimulatedMessage } from './src/bot/services/botSimulator.js';
-import { sheetsDb } from './src/bot/services/sheetsService.js';
+import { sheetsDb, normalizePhone } from './src/bot/services/sheetsService.js';
 import { firestoreDb } from './src/bot/services/firestoreService.js';
 import { executeSearch } from './src/bot/services/searchService.js';
 import {
@@ -2110,54 +2110,8 @@ async function startServer() {
     }
   });
 
-  // Seed 24-hour merchant status stories for www.floate.xyz when database is fresh
-  const FALLBACK_MERCHANT_STATUSES = [
-    {
-      id: 'status_chivora_daily',
-      merchantId: 'merchant_08123456789',
-      vendorPhone: '08123456789',
-      businessName: 'Chivora Footwears & Bags',
-      marketHub: 'Balogun International Market, Lagos',
-      caption: '🔥 NEW ARRIVALS: Italian leather totes & mini sling purses just landed! 15% discount for buyers today.',
-      statusText: '🔥 NEW ARRIVALS: Italian leather totes & mini sling purses just landed! 15% discount for buyers today.',
-      mediaUrl: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=600&q=80',
-      imageUrl: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=600&q=80',
-      badge: '✅ Physical Shop Verified',
-      category: 'Bags & Footwear',
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
-    },
-    {
-      id: 'status_makky_daily',
-      merchantId: 'merchant_08098765432',
-      vendorPhone: '08098765432',
-      businessName: 'Makky Fabrics & Lace',
-      marketHub: 'Tejuosho Ultra-Modern Complex, Yaba',
-      caption: '✨ Sample cuts of new bridal lace and senator fabrics ready for dispatch. Same-day delivery across Lagos.',
-      statusText: '✨ Sample cuts of new bridal lace and senator fabrics ready for dispatch. Same-day delivery across Lagos.',
-      mediaUrl: 'https://images.unsplash.com/photo-1617038260897-41a1f14a8ca0?auto=format&fit=crop&w=600&q=80',
-      imageUrl: 'https://images.unsplash.com/photo-1617038260897-41a1f14a8ca0?auto=format&fit=crop&w=600&q=80',
-      badge: '✅ Physical Shop Verified',
-      category: 'Fabrics & Lace',
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 22 * 3600 * 1000).toISOString(),
-    },
-    {
-      id: 'status_mbam_daily',
-      merchantId: 'merchant_07033445566',
-      vendorPhone: '07033445566',
-      businessName: 'Mbam Tech & Accessories',
-      marketHub: 'Computer Village, Ikeja',
-      caption: '⚡ Fast chargers, MagSafe power banks, and wireless earbuds restocked. Special wholesale bundles available today.',
-      statusText: '⚡ Fast chargers, MagSafe power banks, and wireless earbuds restocked. Special wholesale bundles available today.',
-      mediaUrl: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80',
-      imageUrl: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80',
-      badge: '✅ Market Tech Hub Verified',
-      category: 'Electronics & Gadgets',
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 18 * 3600 * 1000).toISOString(),
-    },
-  ];
+  // Verified 24-hour merchant status stories for www.floate.xyz
+  const FALLBACK_MERCHANT_STATUSES: any[] = [];
 
   // 3i. Public Web Catalog & Merchant Profile Endpoints for www.floate.xyz
   app.get('/api/catalog/products', async (req, res) => {
@@ -2183,19 +2137,13 @@ async function startServer() {
             numericPrice: numPrice,
             whatsapp: l.whatsapp,
             vendorPhone: l.whatsapp,
-            city: l.city || 'Lagos',
-            state: l.state || 'Lagos',
+            city: l.city || '',
+            state: l.state || '',
             isVerified: l.isVerified || l.verifiedStatus === 'YES',
             category: l.category || 'General',
-            marketHub: (l as any).marketHub || `${l.city || 'Lagos'} Trade Market`,
-            imageUrl:
-              (l as any).imageUrl ||
-              (l.category?.toLowerCase().includes('bag')
-                ? 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=600&q=80'
-                : l.category?.toLowerCase().includes('shoe') || l.category?.toLowerCase().includes('footwear')
-                ? 'https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=600&q=80'
-                : 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80'),
-            description: `${l.businessName} - High quality merchandise direct from ${l.city || 'Lagos'} physical market stall.`,
+            marketHub: [l.city, l.state].filter(Boolean).join(', ') || 'Nigeria',
+            imageUrl: (l as any).imageUrl || '',
+            description: `${l.businessName} - Contact directly on WhatsApp for orders, pricing, and nationwide delivery.`,
             createdAt: new Date().toISOString(),
           };
         });
@@ -2228,9 +2176,10 @@ async function startServer() {
           price: l.price || '₦25,000',
           whatsapp: l.whatsapp,
           vendorPhone: l.whatsapp,
-          city: l.city || 'Lagos',
-          category: l.category || 'Fashion',
-          imageUrl: (l as any).imageUrl || 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=600&q=80',
+          city: l.city || '',
+          state: l.state || '',
+          category: l.category || 'General',
+          imageUrl: (l as any).imageUrl || '',
         }));
       }
 
@@ -2247,7 +2196,8 @@ async function startServer() {
           businessName: product.businessName || 'Verified Merchant',
           whatsapp: product.whatsapp || product.vendorPhone,
           isVerified: true,
-          city: product.city || 'Lagos',
+          city: product.city || '',
+          state: product.state || '',
         },
       });
     } catch (err: any) {
@@ -2627,6 +2577,306 @@ async function startServer() {
       });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed to delete merchant' });
+    }
+  });
+
+  // --- Floate OS WhatsApp Auth, KYC & Ads Endpoints ---
+
+  // 1. Send WhatsApp OTP
+  app.post('/api/auth/whatsapp/send-otp', async (req, res) => {
+    try {
+      const { phoneNumber } = req.body || {};
+      if (!phoneNumber) {
+        return res.status(400).json({ success: false, error: 'Phone number is required' });
+      }
+      const cleanPhone = normalizePhone(phoneNumber);
+      const otp = String(Math.floor(1000 + Math.random() * 9000));
+      await firestoreDb.saveAuthOtp(cleanPhone, otp);
+
+      const simulationMsg = `[Floate AI] Your WhatsApp Verification OTP is *${otp}*. Valid for 10 minutes.`;
+      try {
+        await sendWhatsAppMessage(cleanPhone, simulationMsg);
+      } catch (waErr) {
+        console.warn('[WhatsApp OTP] Cloud API send notice:', waErr);
+      }
+
+      return res.json({
+        success: true,
+        message: `OTP sent successfully to WhatsApp (${cleanPhone})`,
+        simulatedOtp: otp,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to send OTP' });
+    }
+  });
+
+  // 2. Verify WhatsApp OTP
+  app.post('/api/auth/whatsapp/verify', async (req, res) => {
+    try {
+      const { phoneNumber, otp } = req.body || {};
+      if (!phoneNumber || !otp) {
+        return res.status(400).json({ success: false, error: 'Phone number and OTP are required' });
+      }
+      const cleanPhone = normalizePhone(phoneNumber);
+      const isValid = await firestoreDb.verifyAuthOtp(cleanPhone, otp);
+      if (!isValid) {
+        return res.status(400).json({ success: false, error: 'Invalid or expired OTP code' });
+      }
+
+      let merchant = await firestoreDb.getMerchant(cleanPhone);
+      const isRegistered = !!merchant && merchant.status === 'ACTIVE';
+
+      return res.json({
+        success: true,
+        isRegistered,
+        merchant: merchant || null,
+        message: 'OTP verified successfully',
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Verification failed' });
+    }
+  });
+
+  // 3. Merchant Registration & KYC
+  app.post('/api/merchant/register', async (req, res) => {
+    try {
+      const {
+        businessName,
+        phoneNumber,
+        addressType,
+        addressDetail,
+        state,
+        category,
+        profilePhoto,
+        cacInfo,
+      } = req.body || {};
+
+      if (!businessName || !phoneNumber || !state || !category) {
+        return res.status(400).json({ success: false, error: 'Missing required registration fields' });
+      }
+
+      const cleanPhone = normalizePhone(phoneNumber);
+      const existing = await firestoreDb.getMerchant(cleanPhone);
+
+      let profilePhotoUrl = existing?.profilePhotoUrl || '';
+      if (profilePhoto && profilePhoto.startsWith('data:image')) {
+        try {
+          const base64Data = profilePhoto.split(',')[1] || profilePhoto;
+          const buffer = Buffer.from(base64Data, 'base64');
+          const savedMedia = await saveCatalogMedia(buffer, 'image/jpeg', `selfie_${cleanPhone}.jpg`);
+          profilePhotoUrl = savedMedia.publicUrl;
+        } catch (imgErr) {
+          console.warn('[MerchantRegister] Image save error:', imgErr);
+        }
+      }
+
+      const merchantData: any = {
+        id: cleanPhone,
+        businessName,
+        whatsapp: cleanPhone,
+        addressType: addressType || 'Shop Address',
+        addressDetail: addressDetail || '',
+        state: state || 'Lagos',
+        city: state || 'Lagos',
+        category: category || 'Provisions',
+        profilePhotoUrl,
+        cacInfo: cacInfo || '',
+        status: 'PENDING_REVIEW',
+        verifiedStatus: 'PENDING',
+        isVerified: false,
+        identityVerified: false,
+        credit_balance: 25,
+        registeredAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await firestoreDb.saveMerchant(merchantData);
+
+      return res.json({
+        success: true,
+        message: 'Merchant registered successfully and submitted for admin review (Pending Vetting).',
+        merchant: merchantData,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Registration failed' });
+    }
+  });
+
+  // 4. Admin Vetting Endpoints
+  app.get('/api/admin/pending-merchants', async (_req, res) => {
+    try {
+      const pending = await firestoreDb.getPendingMerchants();
+      return res.json({ success: true, merchants: pending });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch pending merchants' });
+    }
+  });
+
+  app.post('/api/admin/merchant/verify', async (req, res) => {
+    try {
+      const { merchantId } = req.body || {};
+      if (!merchantId) {
+        return res.status(400).json({ success: false, error: 'Merchant ID / Phone is required' });
+      }
+      const success = await firestoreDb.verifyMerchantByAdmin(merchantId);
+      if (!success) {
+        return res.status(404).json({ success: false, error: 'Merchant not found' });
+      }
+
+      const cleanPhone = normalizePhone(merchantId);
+      const vendorLink = `https://www.floate.xyz/vendor/${cleanPhone}`;
+      const approvalMsg = `🎉 *Congratulations from Floate OS!*\n\nYour business registration has been *APPROVED* by admin.\n\nYour live Floate storefront is now active:\n🔗 ${vendorLink}\n\nYou can now receive qualified buyer leads and run automated ads. Welcome to Floate!`;
+      try {
+        await sendWhatsAppMessage(cleanPhone, approvalMsg);
+      } catch (waErr) {
+        console.warn('[AdminVerify] WhatsApp notification notice:', waErr);
+      }
+
+      return res.json({ success: true, message: `Merchant ${merchantId} verified successfully and notified via WhatsApp.` });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to verify merchant' });
+    }
+  });
+
+  app.post('/api/admin/merchant/reject', async (req, res) => {
+    try {
+      const { merchantId, reason } = req.body || {};
+      if (!merchantId) {
+        return res.status(400).json({ success: false, error: 'Merchant ID is required' });
+      }
+      const success = await firestoreDb.rejectMerchantByAdmin(merchantId, reason);
+      if (!success) {
+        return res.status(404).json({ success: false, error: 'Merchant not found' });
+      }
+      return res.json({ success: true, message: `Merchant ${merchantId} rejected.` });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to reject merchant' });
+    }
+  });
+
+  // 5. Ads Management & Banner Telemetry Endpoints
+  app.get('/api/ads/banner', async (_req, res) => {
+    try {
+      const ads = await firestoreDb.getActiveBannerAds();
+      return res.json({ success: true, ads });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch banner ads' });
+    }
+  });
+
+  app.post('/api/ads/:id/view', async (req, res) => {
+    try {
+      const adId = req.params.id;
+      await firestoreDb.recordAdImpression(adId);
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+
+  app.post('/api/ads/:id/click', async (req, res) => {
+    try {
+      const adId = req.params.id;
+      await firestoreDb.recordAdClick(adId);
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+
+  app.get('/api/admin/ads', async (_req, res) => {
+    try {
+      const ads = await firestoreDb.getAllAdsForAdmin();
+      return res.json({ success: true, ads });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch ads for admin' });
+    }
+  });
+
+  app.post('/api/admin/ads/:id/upload-banner', async (req, res) => {
+    try {
+      const adId = req.params.id;
+      const { designedBanner, targetUrl } = req.body || {};
+      let designedBannerUrl = designedBanner;
+      if (designedBanner && designedBanner.startsWith('data:image')) {
+        const base64Data = designedBanner.split(',')[1] || designedBanner;
+        const buffer = Buffer.from(base64Data, 'base64');
+        const savedMedia = await saveCatalogMedia(buffer, 'image/jpeg', `banner_${adId}.jpg`);
+        designedBannerUrl = savedMedia.publicUrl;
+      }
+      await firestoreDb.updateAdDoc(adId, {
+        designedBannerUrl,
+        targetUrl: targetUrl || '',
+      });
+      return res.json({ success: true, message: 'Designed banner uploaded successfully', designedBannerUrl });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to upload designed banner' });
+    }
+  });
+
+  app.post('/api/admin/ads/:id/approve', async (req, res) => {
+    try {
+      const adId = req.params.id;
+      await firestoreDb.updateAdDoc(adId, {
+        status: 'ACTIVE',
+        approvedAt: new Date().toISOString(),
+      });
+      return res.json({ success: true, message: 'Ad approved and published live as banner.' });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to approve ad' });
+    }
+  });
+
+  app.post('/api/admin/ads/save', async (req, res) => {
+    try {
+      const { id, merchantName, headline, description, adType, targetUrl, status, designedBannerUrl, rawImageUrl } = req.body || {};
+      const adId = id || `ad_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const now = new Date().toISOString();
+      const existing = await firestoreDb.getAdDoc(adId);
+      const adDoc = {
+        id: adId,
+        merchantName: merchantName || 'Floate Partner',
+        headline: headline || 'Sponsored Placement',
+        description: description || '',
+        adType: adType || 'BUSINESS_AD',
+        targetUrl: targetUrl || '',
+        status: status || 'PENDING_DESIGN',
+        designedBannerUrl: designedBannerUrl || existing?.designedBannerUrl || '',
+        rawImageUrl: rawImageUrl || existing?.rawImageUrl || '',
+        impressions: existing?.impressions || 0,
+        clicks: existing?.clicks || 0,
+        submittedVia: existing?.submittedVia || 'ADMIN_MANUAL',
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      };
+      await firestoreDb.saveAdDoc(adDoc as any);
+      return res.json({ success: true, message: 'Ad campaign saved successfully', ad: adDoc });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to save ad' });
+    }
+  });
+
+  app.post('/api/admin/ads/:id/status', async (req, res) => {
+    try {
+      const adId = req.params.id;
+      const { status } = req.body || {};
+      if (!status) {
+        return res.status(400).json({ success: false, error: 'Status is required' });
+      }
+      await firestoreDb.updateAdDoc(adId, { status });
+      return res.json({ success: true, message: `Ad status updated to ${status}` });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to update ad status' });
+    }
+  });
+
+  app.delete('/api/admin/ads/:id', async (req, res) => {
+    try {
+      const adId = req.params.id;
+      await firestoreDb.deleteAdDoc(adId);
+      return res.json({ success: true, message: 'Ad campaign deleted successfully' });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to delete ad' });
     }
   });
 
