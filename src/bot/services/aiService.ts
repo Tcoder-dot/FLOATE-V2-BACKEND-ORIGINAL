@@ -356,6 +356,11 @@ export function isBusinessRegistrationPhrase(rawInput: string): boolean {
     return true;
   }
 
+  // Sponsorship phrases
+  if (/\b(?:sponsor|advertise|promote|advert|promo)\s+(?:my|this|the)?\s+(?:products?|items?|business|store|shop)\b/i.test(lower)) {
+    return true;
+  }
+
   return false;
 }
 

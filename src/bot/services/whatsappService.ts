@@ -6078,7 +6078,7 @@ export async function processMasterWhatsAppEngine(params: {
     text === 'REGISTER_SHOP' ||
     text === 'CLAIM_BUSINESS' ||
     text === 'CLAIM_SHOP' ||
-    /^(register business|register my business|register shop|claim business|claim my business|claim listing)$/i.test(cleanLower)
+    /^(register business|register my business|register shop|claim business|claim my business|claim listing|sponsor|advertise|promote|advert|promo)$/i.test(cleanLower)
   ) {
     console.log(`[WhatsApp Engine] 🏪 Direct Register / Claim Business flow initiated for +${cleanPhone}`);
     const displayName = senderName && senderName !== 'Customer' ? `${senderName.trim()}, ` : '';
