@@ -1108,6 +1108,36 @@ export async function startFloateDirectHandoff(buyerPhone: string, buyerName: st
     }
   }
 
+  // Intercept reveal for lead qualification
+  const buyerSession = getWhatsAppSession(cleanBuyerPhone);
+  
+  // Check if buyer has already qualified for this vendor
+  let isQualified = false;
+  try {
+    isQualified = await firestoreDb.checkBuyerQualification(cleanBuyerPhone, bizId);
+  } catch (err) {
+    console.warn('[Qualification Check Warning]:', err);
+  }
+
+  if (!isQualified) {
+    updateWhatsAppSession(cleanBuyerPhone, {
+      state: 'QUALIFYING_BUDGET',
+      leadQualificationDraft: {
+        step: 'AWAITING_BUDGET',
+        vendorId: bizId,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    await sendWhatsAppMessage(
+      cleanBuyerPhone,
+      `🛡️ *Lead Qualification Required* 🛡️\n\n` +
+      `To protect our vendors, please provide your *Budget* and *Specific Needs* before we reveal the direct contact details.\n\n` +
+      `What is your budget for this inquiry?`
+    );
+    return;
+  }
+
+  // Proceed with reveal...
   const bizName = listing?.businessName || 'Verified Vendor';
   const rawBizPhone = listing?.whatsapp || '';
   const vendorPhone = normalizePhone(rawBizPhone).replace(/^0/, '234');
@@ -6446,6 +6476,47 @@ export async function processMasterWhatsAppEngine(params: {
       await execute10CardSearch(senderPhone, senderName, { queryText: text });
       return;
     }
+  }
+
+  // Step 1: Budget
+  if (session.state === 'QUALIFYING_BUDGET') {
+    updateWhatsAppSession(senderPhone, {
+      state: 'QUALIFYING_NEEDS',
+      leadQualificationDraft: {
+        ...(session.leadQualificationDraft || { step: 'AWAITING_BUDGET', updatedAt: new Date().toISOString() }),
+        step: 'AWAITING_NEEDS',
+        budget: text,
+      },
+    });
+    await sendWhatsAppMessage(senderPhone, `Got it! What are your specific needs for this product?`);
+    return;
+  }
+
+  // Step 2: Needs
+  if (session.state === 'QUALIFYING_NEEDS') {
+    const draft = session.leadQualificationDraft;
+    const finalDraft = {
+      ...(draft || { step: 'AWAITING_NEEDS', updatedAt: new Date().toISOString() }),
+      needs: text,
+    };
+    
+    // Save qualification to Firestore
+    try {
+      await firestoreDb.saveBuyerQualification(senderPhone, finalDraft.vendorId!, finalDraft.budget!, finalDraft.needs!);
+    } catch (err) {
+      console.warn('[Save Qualification Warning]:', err);
+    }
+    
+    updateWhatsAppSession(senderPhone, {
+      state: 'IDLE',
+      leadQualificationDraft: undefined,
+    });
+    
+    await sendWhatsAppMessage(senderPhone, `Thank you! Qualification complete.`);
+    
+    // Now call the original reveal function to provide the number
+    await startFloateDirectHandoff(senderPhone, senderName, finalDraft.vendorId!);
+    return;
   }
 
   // Step 3: Buyer Location Answered -> Save Lead to DB & Complete Handoff

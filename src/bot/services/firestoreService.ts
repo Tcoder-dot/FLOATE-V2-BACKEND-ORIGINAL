@@ -1234,6 +1234,36 @@ export class FirestoreService {
   }
 
   /**
+   * Checks if buyer has already qualified for a vendor
+   */
+  public async checkBuyerQualification(buyerPhone: string, merchantId: string): Promise<boolean> {
+    const q = query(
+      collection(db, 'qualification_sessions'),
+      where('buyerId', '==', buyerPhone),
+      where('merchantId', '==', merchantId),
+      where('status', '==', 'QUALIFIED'),
+      limit(1)
+    );
+    const snap = await getDocs(q);
+    return !snap.empty;
+  }
+
+  /**
+   * Saves buyer qualification
+   */
+  public async saveBuyerQualification(buyerPhone: string, merchantId: string, budget: string, needs: string): Promise<void> {
+    const qualId = `qual-${buyerPhone}-${merchantId}`;
+    await setDoc(doc(db, 'qualification_sessions', qualId), {
+      buyerId: buyerPhone,
+      merchantId,
+      budget,
+      needs,
+      status: 'QUALIFIED',
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+  }
+
+  /**
    * Get qualification session by ID
    */
   public async getQualificationSession(qualId: string): Promise<QualificationSessionDoc | null> {

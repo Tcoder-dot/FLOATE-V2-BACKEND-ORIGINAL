@@ -116,6 +116,14 @@ export interface WhatsAppVendorKycDraft {
   updatedAt: string;
 }
 
+export interface WhatsAppLeadQualificationDraft {
+  step: 'AWAITING_BUDGET' | 'AWAITING_NEEDS';
+  budget?: string;
+  needs?: string;
+  vendorId?: string;
+  updatedAt: string;
+}
+
 export interface WhatsAppDispatchProofDraft {
   escrowRef: string;
   orderId?: string;
@@ -288,6 +296,9 @@ export interface WhatsAppUserSessionState {
     | 'AWAITING_VISUAL_SEARCH_CONFIRMATION'
     | 'SAFEPAY_AWAITING_PAYMENT_METHOD'
     | 'SAFEPAY_CREATING'
+    | 'QUALIFYING_BUDGET'
+    | 'QUALIFYING_NEEDS'
+    | 'AWAITING_QUALIFIED_REVEAL'
     | 'WA_VERIF_STEP_1_NAME'
     | 'WA_VERIF_STEP_1_BIZ'
     | 'WA_VERIF_STEP_2_NIN'
@@ -339,6 +350,7 @@ export interface WhatsAppUserSessionState {
   vendorBankDraft?: WhatsAppVendorBankDraft;
   vendorKycDraft?: WhatsAppVendorKycDraft;
   safepayDraft?: WhatsAppSafePayDraft;
+  leadQualificationDraft?: WhatsAppLeadQualificationDraft;
   dispatchDraft?: WhatsAppDispatchProofDraft;
   pendingTopupRef?: string;
   pendingTopupAmount?: number;

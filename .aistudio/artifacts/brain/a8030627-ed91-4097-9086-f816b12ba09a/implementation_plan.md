@@ -1,34 +1,36 @@
-# Implementation Plan: Pre-Launch Readiness & Beta Testing
+# Implementation Plan: Buyer Lead Qualification Flow
 
-## Overview
-This implementation plan outlines the steps leading up to our pre-launch beta test. It addresses search visibility for image-less merchants, sets up the private beta testing framework for real users, and reserves business model configuration for tomorrow's discussion.
+This plan outlines the integration of a mandatory lead qualification workflow for buyers before revealing a vendor's direct WhatsApp contact number.
 
----
+## 1. Overview & Core Concept
+- **Goal**: Qualify buyers by collecting "Budget" and "Specific Needs" before releasing a vendor's contact information.
+- **Workflow**: 
+    1. Buyer initiates contact.
+    2. AI identifies an "unqualified" session.
+    3. AI triggers `QUALIFYING` state and asks for budget/needs.
+    4. Buyer provides input.
+    5. AI records info in `RelaySession`.
+    6. AI reveals vendor WhatsApp number directly in chat.
+    7. Vendor is notified of the lead *only after* the buyer contacts them.
 
-## Phase 1: Search & Recommendation Engine (Image-less Merchant Robustness)
-- **Objective:** Ensure merchants without uploaded images still appear prominently in frontend search results (`www.floate.xyz/search` & API) with clean text cards and direct "Chat on WhatsApp" buttons.
-- **Tasks:**
-  1. Audit backend search ranking (`searchService.ts`) to verify that stores matching keyword queries are fully surfaced even when `imageUrl` or `productImages` arrays are empty.
-  2. Implement sleek fallback rendering on frontend search cards (`WebSearchDemo.tsx` & `VendorStorefront.tsx`) displaying business name, verified badge, market hub, product name, and direct WhatsApp connect actions without layout shifting.
+## 2. Technical Architecture & Data Strategy
+- **State Management**:
+    - Update `WhatsAppUserSessionState` in `src/bot/services/whatsappStateManager.ts` to include `qualifyingDraft` (for capturing Budget/Needs).
+- **Backend Routing (`whatsappService.ts`)**:
+    - Intercept `startFloateSecureLine` to initiate the qualification flow.
+    - Add a new state handler in `handleInboundMessage` for `QUALIFYING` to process user responses.
+- **Persistence**:
+    - Store captured lead data (budget/needs) in the `RelaySession` document within Firestore.
 
----
+## 3. UX Flow
+- **Initiation**: Buyer asks for a vendor contact.
+- **Qualification**: AI requests: "Before I connect you, could you please tell me your budget and specific needs for this item?"
+- **Reveal**: Once info is provided, AI replies: "Thanks! Here is the vendor's direct line: [Number]. You can contact them now."
+- **Notification**: Upon first contact message, the vendor receives a lead summary: "New lead from [Buyer] (Budget: [Budget], Needs: [Needs])."
 
-## Phase 2: Beta Testing Setup (Real / Selected Users)
-- **Objective:** Prepare the platform for a controlled beta test with selected merchants and buyers.
-- **Tasks:**
-  1. Configure beta test telemetry and error logging (`handleFirestoreError`) to track any permission or handshake issues during live user testing.
-  2. Prepare the beta onboarding guide and WhatsApp outreach link (`wa.me`) for test merchants to drop their first product images and test the `/verify` portal.
+## 4. User Review & Decisions
+- **Decision**: Qualification is mandatory for all direct number reveals.
+- **Decision**: Vendor notification is triggered by the first buyer-to-vendor message after reveal.
 
----
-
-## Phase 3: Business Model & Pricing Integration (Scheduled for Tomorrow)
-- **Objective:** Finalize and integrate the merchant credit/payment model after tomorrow's discussion.
-- **Tasks:**
-  1. Keep current fallback (25 free introductory leads) active.
-  2. Implement updated pricing logic in backend and admin wallet views once confirmed.
-
----
-
-## Verification Plan
-- Run `compile_applet` and `lint_applet` to confirm zero compilation or TypeScript errors.
-- Test-run simulated search queries for image-less merchants to guarantee 100% display reliability.
+[!IMPORTANT]
+Please review this plan. Upon approval, I will implement the state management changes and the updated WhatsApp message routing.
