@@ -19,7 +19,16 @@ export default function App() {
     const search = window.location.search;
     if (path.includes('/handshake') || search.includes('handshake=') || path.includes('/floate-xyz')) {
       setActiveTab('handshake');
-    } else if (path.includes('/catalog/') || path.includes('/vendor/') || search.includes('prod=') || search.includes('vendor=')) {
+    } else if (
+      path.includes('/catalog/') ||
+      path.includes('/vendor/') ||
+      path.includes('/merchant/') ||
+      path.includes('/merchant') ||
+      path.startsWith('/@') ||
+      search.includes('prod=') ||
+      search.includes('vendor=') ||
+      search.includes('merchant=')
+    ) {
       setActiveTab('storefront');
     } else if (path.includes('/verify') || search.includes('phone=') || search.includes('verify=')) {
       setActiveTab('verify');
@@ -45,7 +54,7 @@ export default function App() {
                     WhatsApp Admin & Storefront
                   </span>
                 </h1>
-                <p className="text-xs text-slate-400">Executive Telemetry, Web Storefronts, 24h Status Feeds & WhatsApp Bots</p>
+                <p className="text-xs text-slate-400">Executive Telemetry, Web Storefronts, Verified Merchants & WhatsApp Bots</p>
               </div>
             </div>
           </div>

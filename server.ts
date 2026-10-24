@@ -7,7 +7,7 @@ import { config, isBotConfigured, isWhatsAppConfigured, isMonnifyConfigured } fr
 import { getBotInstance } from './src/bot/bot.js';
 import { statsManager } from './src/bot/statsManager.js';
 import { processSimulatedMessage } from './src/bot/services/botSimulator.js';
-import { sheetsDb, normalizePhone } from './src/bot/services/sheetsService.js';
+import { sheetsDb, normalizePhone, parsePriceToNumber } from './src/bot/services/sheetsService.js';
 import { firestoreDb } from './src/bot/services/firestoreService.js';
 import { executeSearch } from './src/bot/services/searchService.js';
 import {
@@ -46,6 +46,7 @@ import {
   verifyNinDocumentWithGeminiVision,
   verifyLivenessVideoWithGemini,
   extractCleanBase64,
+  classifyCosRouterIntent,
 } from './src/bot/services/aiService.js';
 
 
@@ -85,6 +86,17 @@ async function startServer() {
   // 1. Health & Handshake Endpoints for www.floate.xyz
   app.get('/health', (_req, res) => {
     res.status(200).send('Floate Multi-Channel Engine is running');
+  });
+
+  app.post('/api/router/classify', async (req, res) => {
+    try {
+      const { message, text, query } = req.body || {};
+      const input = message || text || query || '';
+      const result = await classifyCosRouterIntent(input);
+      return res.json(result);
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || 'COS router classification failed' });
+    }
   });
 
   app.get(['/api/health', '/api/handshake', '/api/ping'], (req, res) => {
@@ -2205,65 +2217,153 @@ async function startServer() {
     }
   });
 
-  app.get('/api/catalog/vendor/:phone', async (req, res) => {
+  // Enhanced Multi-Identifier Merchant Profile Endpoint (supports sheet-1, phone numbers, business slugs e.g. kasi-communications)
+  const handleVendorProfile = async (req: express.Request, res: express.Response) => {
     try {
-      const phone = req.params.phone;
-      const merchant = await firestoreDb.getMerchant(phone);
-      const products = await firestoreDb.getAllProducts(phone);
-      const statuses = await firestoreDb.getActiveMerchantStatuses(phone);
+      const rawParam = (req.params.phone || req.params.slug || req.params.identifier || '').trim();
+      const decodedParam = decodeURIComponent(rawParam);
+
+      let targetPhone = decodedParam;
+      let merchant: any = null;
+
+      // 1. Check if rawParam is a sheet identifier (e.g. sheet-1, sheet-2, sheet1, sheet_1)
+      const sheetMatch = decodedParam.match(/^sheet[-_]?(\d+)$/i);
+      if (sheetMatch) {
+        const sheetIndex = Math.max(0, parseInt(sheetMatch[1], 10) - 1);
+        const allListings = await sheetsDb.getAllListings();
+        const targetListing = allListings[sheetIndex] || allListings[0];
+        if (targetListing) {
+          targetPhone = targetListing.whatsapp || targetListing.id;
+          merchant = await firestoreDb.getMerchant(targetPhone);
+          if (!merchant) {
+            merchant = {
+              id: targetListing.id || targetListing.whatsapp,
+              businessName: targetListing.businessName,
+              ownerFullName: targetListing.ownerFullName || '',
+              whatsapp: targetListing.whatsapp,
+              state: targetListing.state,
+              city: targetListing.city,
+              category: targetListing.category,
+              isVerified: targetListing.isVerified || targetListing.verifiedStatus === 'YES',
+              verifiedStatus: targetListing.verifiedStatus || 'YES',
+            };
+          }
+        }
+      }
+
+      // 2. If not a sheet identifier or not resolved yet, attempt getMerchant by phone or key
+      if (!merchant) {
+        merchant = await firestoreDb.getMerchant(targetPhone);
+      }
+
+      // 3. If still null, search active merchants/listings by business slug or name
+      if (!merchant) {
+        const cleanSlug = decodedParam.toLowerCase().replace(/[-_]+/g, ' ').replace(/[^a-z0-9 ]/g, '').trim();
+        const allMerchants = await firestoreDb.getAllMerchantsList(200);
+        const match = allMerchants.find((m) => {
+          const biz = (m.businessName || '').toLowerCase().replace(/[-_]+/g, ' ').replace(/[^a-z0-9 ]/g, '').trim();
+          return biz === cleanSlug || (cleanSlug.length > 3 && (biz.includes(cleanSlug) || cleanSlug.includes(biz)));
+        });
+
+        if (match) {
+          merchant = match;
+          targetPhone = match.whatsapp || match.id;
+        } else {
+          const sheetsListing = sheetsDb.getListingByBusinessName(decodedParam) ||
+            sheetsDb.getAllListings().find((l) => {
+              const biz = (l.businessName || '').toLowerCase().replace(/[-_]+/g, ' ').replace(/[^a-z0-9 ]/g, '').trim();
+              return biz === cleanSlug || (cleanSlug.length > 3 && biz.includes(cleanSlug));
+            });
+
+          if (sheetsListing) {
+            targetPhone = sheetsListing.whatsapp || sheetsListing.id;
+            merchant = {
+              id: sheetsListing.id || sheetsListing.whatsapp,
+              businessName: sheetsListing.businessName,
+              ownerFullName: sheetsListing.ownerFullName || '',
+              whatsapp: sheetsListing.whatsapp,
+              state: sheetsListing.state,
+              city: sheetsListing.city,
+              category: sheetsListing.category,
+              isVerified: sheetsListing.isVerified || sheetsListing.verifiedStatus === 'YES',
+              verifiedStatus: sheetsListing.verifiedStatus || 'YES',
+            };
+          }
+        }
+      }
+
+      // 4. Load merchant products and 24h status stories
+      let products = await firestoreDb.getAllProducts(targetPhone || decodedParam);
+      if ((!products || products.length === 0) && merchant?.businessName) {
+        const allProducts = await firestoreDb.getAllProducts();
+        products = allProducts.filter((p: any) =>
+          p.businessName?.toLowerCase() === merchant.businessName.toLowerCase() ||
+          p.vendorPhone === merchant.whatsapp ||
+          p.whatsapp === merchant.whatsapp
+        );
+      }
+
+      if ((!products || products.length === 0) && merchant) {
+        const listings = await sheetsDb.getAllListings();
+        const vendorListings = listings.filter((l) =>
+          l.businessName?.toLowerCase() === merchant.businessName?.toLowerCase() ||
+          l.whatsapp === merchant.whatsapp
+        );
+        products = vendorListings.map((l, index) => ({
+          id: l.id || `prod_${l.whatsapp || index}`,
+          businessName: l.businessName,
+          vendorName: l.businessName,
+          product: l.product || l.businessName,
+          name: l.product || l.businessName,
+          price: l.price || '₦25,000',
+          numericPrice: parsePriceToNumber(l.price || ''),
+          whatsapp: l.whatsapp,
+          vendorPhone: l.whatsapp,
+          city: l.city || '',
+          state: l.state || '',
+          isVerified: l.isVerified || l.verifiedStatus === 'YES',
+          category: l.category || 'General',
+          imageUrl: (l as any).imageUrl || '',
+          description: `${l.businessName} - Contact directly on WhatsApp for orders, pricing, and delivery.`,
+        }));
+      }
+
+      const statuses = await firestoreDb.getActiveMerchantStatuses(targetPhone || decodedParam);
+
+      const cleanBizName = merchant?.businessName || 'Verified Merchant';
+      const merchantSlug = cleanBizName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
       return res.json({
         success: true,
-        merchant: merchant || { businessName: 'Verified Merchant', whatsapp: phone, isVerified: true },
-        products,
-        statuses: statuses.length > 0 ? statuses : FALLBACK_MERCHANT_STATUSES.filter(s => s.vendorPhone.includes(phone) || phone.includes(s.vendorPhone)),
+        merchant: merchant || {
+          businessName: cleanBizName,
+          whatsapp: targetPhone || decodedParam,
+          isVerified: true,
+          slug: merchantSlug,
+        },
+        slug: merchantSlug,
+        cleanStoreUrl: `https://www.floate.xyz/merchant/${merchantSlug}`,
+        vendorPhone: targetPhone,
+        products: products || [],
+        statuses: [],
       });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch vendor profile' });
     }
-  });
+  };
 
-  // Daily Status Updates Feed (WhatsApp / Instagram Stories style for merchants)
+  app.get('/api/catalog/vendor/:phone', handleVendorProfile);
+  app.get('/api/catalog/merchant/:slug', handleVendorProfile);
+  app.get('/api/merchant/profile/:identifier', handleVendorProfile);
+
+  // Daily Status Updates Feed (PAUSED)
   app.get(['/api/catalog/statuses', '/api/merchants/status-updates'], async (_req, res) => {
-    try {
-      const statuses = await firestoreDb.getActiveMerchantStatuses();
-      const finalStatuses = statuses && statuses.length > 0 ? statuses : FALLBACK_MERCHANT_STATUSES;
-      return res.json({ success: true, count: finalStatuses.length, statuses: finalStatuses });
-    } catch (err: any) {
-      return res.json({ success: true, count: FALLBACK_MERCHANT_STATUSES.length, statuses: FALLBACK_MERCHANT_STATUSES });
-    }
+    return res.json({ success: true, count: 0, statuses: [], paused: true, message: 'Daily status feed is currently paused.' });
   });
 
-  // Post Daily Status Update from Web or Merchant Portal
-  app.post('/api/catalog/status', async (req, res) => {
-    try {
-      const { vendorPhone, businessName, caption, statusText, mediaUrl, imageUrl, marketHub, category } = req.body || {};
-      if (!vendorPhone || (!caption && !statusText)) {
-        return res.status(400).json({ success: false, error: 'vendorPhone and caption/statusText are required.' });
-      }
-
-      const cleanPhone = (vendorPhone || '').replace(/\D/g, '');
-      const newStatus = {
-        id: `status_${cleanPhone}_${Date.now()}`,
-        merchantId: `merchant_${cleanPhone}`,
-        vendorPhone: cleanPhone,
-        businessName: businessName || 'Verified Merchant',
-        marketHub: marketHub || 'Lagos Central Market',
-        caption: caption || statusText,
-        statusText: caption || statusText,
-        mediaUrl: mediaUrl || imageUrl || '',
-        imageUrl: mediaUrl || imageUrl || '',
-        category: category || 'General',
-        badge: '✅ Physical Shop Verified',
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
-      };
-
-      await firestoreDb.saveMerchantStatus(newStatus as any);
-      return res.json({ success: true, status: newStatus, message: '24-hour status story posted successfully.' });
-    } catch (err: any) {
-      return res.status(500).json({ success: false, error: err?.message || 'Failed to post status update' });
-    }
+  // Post Daily Status Update from Web or Merchant Portal (PAUSED)
+  app.post('/api/catalog/status', async (_req, res) => {
+    return res.status(400).json({ success: false, paused: true, error: 'Daily status updates feature is currently paused.' });
   });
 
   // Direct Buyer Inquiry / Handshake Webhook from floate.xyz

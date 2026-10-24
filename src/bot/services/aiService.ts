@@ -3761,3 +3761,115 @@ Return ONLY a valid JSON object matching this schema:
     };
   }
 }
+
+export interface CosRouterResult {
+  intent: 'VENDOR_PROMOTION' | 'GENERAL_QUERY';
+  confidence: number;
+  extracted_type: 'SEARCH_BOOST' | 'DISCOUNT_SALE' | 'BANNER_INQUIRY' | 'UNKNOWN';
+  detected_language: 'PIDGIN' | 'ENGLISH' | 'MIXED';
+}
+
+/**
+ * COS Router Engine for FLOATE
+ * Determines if an incoming user message intends to promote, boost, sponsor, or run ads on FLOATE.
+ */
+export async function classifyCosRouterIntent(message: string): Promise<CosRouterResult> {
+  const text = (message || '').trim();
+  if (!text) {
+    return {
+      intent: 'GENERAL_QUERY',
+      confidence: 0.0,
+      extracted_type: 'UNKNOWN',
+      detected_language: 'ENGLISH',
+    };
+  }
+
+  const ai = getAIClient();
+  if (ai) {
+    try {
+      const prompt = `You are the COS Router Engine for FLOATE—an AI-native Market Operating System digitizing informal African commerce (e.g., Computer Village, Onitsha Main Market, Balogun Market).
+
+YOUR SOLE TASK:
+Analyze the incoming user message (in English, Nigerian Pidgin, or market slang) and determine if the user intends to PROMOTES, BOOST, SPONSOR, or RUN ADS for their business, products, or stall on FLOATE.
+
+---
+
+1. INTENT RECOGNITION CATEGORIES:
+
+A. "VENDOR_PROMOTION" (High Confidence Match):
+Triggers when a vendor wants to run ads, pay for visibility, feature their shop, boost stock, or run discount sales.
+Examples of recognized phrasing:
+- Pidgin / Street Slang: "I wan blow my business", "how I fit push my market", "I wan boost my stall", "show my market for front", "how I fit make my items show first", "I wan package my market", "help me carry my shop go top", "how we go run am", "I wan enter eyes".
+- Direct / Short: "I wan run sponsor", "how to boost stall", "I wan do promo", "place ads here", "top search result", "ad rates", "feature my shop".
+- Business / Formal: "I want to promote my business", "how do I run sponsored ads", "advertising rates", "sponsor my catalog", "appear at the top of search", "feature my store on the landing page".
+- Discount / Flash Sales: "I wan clear stock", "run discount sales ad", "I get promo sales today", "host flash sale", "cut price for my goods".
+
+B. "GENERAL_QUERY" (No Promotion Intent):
+Triggers when the message is a buyer product search, general greeting, standard vendor catalog update without promotion, or support query.
+Examples: "How much be iPhone 13?", "Where is your office?", "Upload this picture to my stall", "Good morning".
+
+---
+
+2. OUTPUT FORMAT CONSTRAINTS:
+You MUST respond with STRICT, VALID JSON ONLY. Do NOT include markdown code blocks, explanations, or leading text.
+
+JSON Output Schema:
+{
+  "intent": "VENDOR_PROMOTION" | "GENERAL_QUERY",
+  "confidence": number, // float between 0.0 and 1.0
+  "extracted_type": "SEARCH_BOOST" | "DISCOUNT_SALE" | "BANNER_INQUIRY" | "UNKNOWN",
+  "detected_language": "PIDGIN" | "ENGLISH" | "MIXED"
+}
+
+Incoming User Message:
+"${text.replace(/"/g, '\\"')}"`;
+
+      const response = await generateContentWithFallback(ai, {
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      });
+
+      const responseText = (response.text || '').trim();
+      const cleanJson = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleanJson);
+
+      if (parsed && (parsed.intent === 'VENDOR_PROMOTION' || parsed.intent === 'GENERAL_QUERY')) {
+        return {
+          intent: parsed.intent,
+          confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.95,
+          extracted_type: parsed.extracted_type || 'UNKNOWN',
+          detected_language: parsed.detected_language || 'ENGLISH',
+        };
+      }
+    } catch (err) {
+      console.warn('[COS Router Engine Warning]:', err);
+    }
+  }
+
+  // Fallback heuristic detection for offline or backup
+  const lower = text.toLowerCase();
+  const isVendorPromotion = /\b(push my market|boost my stall|blow my business|run ad|run ads|run sponsor|boost stall|do promo|place ad|place ads|top search|ad rates|feature my shop|promote my business|sponsored ad|sponsored ads|advertising rates|sponsor my catalog|banner ad|clear stock|discount sale|flash sale|enter eyes|carry my shop go top)\b/i.test(lower);
+
+  if (isVendorPromotion) {
+    let extractedType: 'SEARCH_BOOST' | 'DISCOUNT_SALE' | 'BANNER_INQUIRY' | 'UNKNOWN' = 'SEARCH_BOOST';
+    if (lower.includes('discount') || lower.includes('clear stock') || lower.includes('flash sale')) {
+      extractedType = 'DISCOUNT_SALE';
+    } else if (lower.includes('banner') || lower.includes('rates')) {
+      extractedType = 'BANNER_INQUIRY';
+    }
+    const isPidgin = /\b(wan|fit|dey|go|make|my market|top|blow|enter eyes)\b/i.test(lower);
+    return {
+      intent: 'VENDOR_PROMOTION',
+      confidence: 0.85,
+      extracted_type: extractedType,
+      detected_language: isPidgin ? 'PIDGIN' : 'ENGLISH',
+    };
+  }
+
+  return {
+    intent: 'GENERAL_QUERY',
+    confidence: 0.05,
+    extracted_type: 'UNKNOWN',
+    detected_language: /\b(wan|fit|dey|go|make|be|how much be)\b/i.test(lower) ? 'PIDGIN' : 'ENGLISH',
+  };
+}
+

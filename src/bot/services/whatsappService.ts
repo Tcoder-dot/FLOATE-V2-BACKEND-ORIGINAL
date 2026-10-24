@@ -4888,6 +4888,16 @@ export async function processMasterWhatsAppEngine(params: {
     return;
   }
 
+  // Product Upload Wizard Interceptor & State Processor
+  const handledAddWizard = await handleVendorAddProductWizard({
+    cleanPhone,
+    senderName,
+    text,
+    imageId,
+    imageMimeType,
+  });
+  if (handledAddWizard) return;
+
   // My Business / Merchant Portal Interrupt
   const isBusinessCommand =
     text === 'btn_for_businesses' ||
@@ -8032,6 +8042,348 @@ async function handleVendorTopupCustomPrompt(toPhone: string, senderName: string
       { id: 'btn_vendor_topup_credits', title: '📦 All Packages' },
     ],
   });
+}
+
+/**
+ * Interactive Multi-Step Product Upload Wizard for Vendors on WhatsApp
+ * Step 1: Photo Image
+ * Step 2: Product Name
+ * Step 3: Regular Price
+ * Step 4: Description / Specs
+ * Step 5: Discount / Promo Price
+ * Step 6: Confirmation & Instant Live Frontend Publishing
+ */
+export async function handleVendorAddProductWizard(params: {
+  cleanPhone: string;
+  senderName: string;
+  text: string;
+  imageId?: string;
+  imageMimeType?: string;
+}): Promise<boolean> {
+  const { cleanPhone, senderName, text, imageId, imageMimeType } = params;
+  const session = getWhatsAppSession(cleanPhone);
+  const draft = session.vendorAddDraft || { step: 'STEP_1_PHOTO', updatedAt: new Date().toISOString() };
+  const cleanLower = text.toLowerCase().trim();
+
+  // Trigger keywords & intents
+  const isAddTrigger =
+    text === 'btn_add_product' ||
+    text === 'btn_vendor_add' ||
+    /^(?:i\s*want\s*to\s*upload(?:\s*my)?\s*product|i\s*want\s*to\s*post(?:\s*my)?\s*product|upload\s*product|post\s*product|add\s*product|post\s*item|upload\s*market|list\s*product|add\s*new\s*item|post\s*new\s*product|i\s*wan\s*post\s*my\s*product|i\s*wan\s*upload\s*my\s*product|i\s*wan\s*post\s*product|upload\s*my\s*product|upload\s*item|post\s*my\s*goods|upload\s*my\s*goods)$/i.test(cleanLower);
+
+  if (isAddTrigger) {
+    updateWhatsAppSession(cleanPhone, {
+      state: 'VENDOR_ADD_PRODUCT',
+      vendorAddDraft: {
+        step: 'STEP_1_PHOTO',
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    await sendWhatsAppMessage(
+      cleanPhone,
+      `📸 *Step 1 of 5: Upload Product Photo*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `Please snap or send a clear photo image of the product you want to upload.\n\n` +
+      `💡 _Tip: Sending a photo helps buyers see your stock and buy faster on WhatsApp and floate.xyz!_`
+    );
+    return true;
+  }
+
+  if (session.state !== 'VENDOR_ADD_PRODUCT') {
+    return false;
+  }
+
+  // Cancel action
+  if (text === 'btn_cancel_add_product' || /^(cancel|stop|reset|exit)$/i.test(cleanLower)) {
+    updateWhatsAppSession(cleanPhone, { state: 'IDLE', vendorAddDraft: undefined });
+    await sendWhatsAppMessage(
+      cleanPhone,
+      `❌ Product upload cancelled. You can return anytime to post items to your storefront.`
+    );
+    return true;
+  }
+
+  // STEP 1: RECEIVING PHOTO
+  if (draft.step === 'STEP_1_PHOTO' || draft.step === 'NAME') {
+    let photoUrl = '';
+    let photoMediaId = imageId || '';
+
+    if (imageId) {
+      photoUrl = `/api/media/${imageId}`;
+    } else if (text.startsWith('http') || text.startsWith('data:image')) {
+      photoUrl = text;
+    }
+
+    if (!photoUrl && !photoMediaId) {
+      if (/^(skip|no photo|no\s*photo|later|none)$/i.test(cleanLower)) {
+        updateWhatsAppSession(cleanPhone, {
+          state: 'VENDOR_ADD_PRODUCT',
+          vendorAddDraft: {
+            ...draft,
+            step: 'STEP_2_NAME',
+            updatedAt: new Date().toISOString(),
+          },
+        });
+        await sendWhatsAppMessage(
+          cleanPhone,
+          `📝 *Step 2 of 5: Product Name*\n\nWhat is the title or name of this product?\n*(e.g., "iPhone 13 Pro Max 128GB Blue")*`
+        );
+        return true;
+      }
+
+      await sendWhatsAppMessage(
+        cleanPhone,
+        `📸 *Please send a photo image of your product.*\n\nSnap a photo or pick an image from your gallery, or reply "Skip" if you don't have a photo right now.`
+      );
+      return true;
+    }
+
+    // Save photo to draft and move to Step 2: Product Name
+    updateWhatsAppSession(cleanPhone, {
+      state: 'VENDOR_ADD_PRODUCT',
+      vendorAddDraft: {
+        ...draft,
+        photoUrl: photoUrl || `/api/media/${photoMediaId}`,
+        photoMediaId,
+        step: 'STEP_2_NAME',
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    await sendWhatsAppMessage(
+      cleanPhone,
+      `✅ *Product Photo Received & Saved!* 📸\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `📝 *Step 2 of 5: Product Name*\n\n` +
+      `What is the title or name of this product?\n` +
+      `*(e.g., "iPhone 13 Pro Max 128GB Blue" or "Nike Air Jordan 4 Size 43")*`
+    );
+    return true;
+  }
+
+  // STEP 2: RECEIVING PRODUCT NAME
+  if (draft.step === 'STEP_2_NAME') {
+    const prodName = text.trim();
+    if (!prodName || prodName.length < 2) {
+      await sendWhatsAppMessage(
+        cleanPhone,
+        `⚠️ Please type a valid product name (e.g. "iPhone 13 Pro Max 128GB Blue"):`
+      );
+      return true;
+    }
+
+    updateWhatsAppSession(cleanPhone, {
+      state: 'VENDOR_ADD_PRODUCT',
+      vendorAddDraft: {
+        ...draft,
+        productName: prodName,
+        step: 'STEP_3_PRICE',
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    await sendWhatsAppMessage(
+      cleanPhone,
+      `✅ *Product Name:* **${prodName}**\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💰 *Step 3 of 5: Product Price*\n\n` +
+      `What is the regular price for this item in Naira?\n` +
+      `*(e.g., "450,000" or "450k")*`
+    );
+    return true;
+  }
+
+  // STEP 3: RECEIVING PRICE
+  if (draft.step === 'STEP_3_PRICE' || draft.step === 'PRICE') {
+    const numPrice = parseNumericAmount(text);
+    if (!numPrice || numPrice <= 0) {
+      await sendWhatsAppMessage(
+        cleanPhone,
+        `⚠️ Please enter a valid numeric price in Naira (e.g. "450,000" or "450k"):`
+      );
+      return true;
+    }
+
+    const priceFormatted = `₦${numPrice.toLocaleString()}`;
+
+    updateWhatsAppSession(cleanPhone, {
+      state: 'VENDOR_ADD_PRODUCT',
+      vendorAddDraft: {
+        ...draft,
+        price: priceFormatted,
+        numericPrice: numPrice,
+        step: 'STEP_4_DESC',
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    await sendWhatsAppMessage(
+      cleanPhone,
+      `✅ *Regular Price:* **${priceFormatted}**\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `📝 *Step 4 of 5: Product Description & Specs*\n\n` +
+      `Please type a short description or specification for this product.\n` +
+      `*(e.g., "UK Used, 100% Battery Health, Clean with Original Accessories")*\n\n` +
+      `_Or reply "None" to skip._`
+    );
+    return true;
+  }
+
+  // STEP 4: RECEIVING DESCRIPTION
+  if (draft.step === 'STEP_4_DESC' || draft.step === 'DESC') {
+    const isNone = /^(none|no|nil|skip|-)$/i.test(cleanLower);
+    const descText = isNone ? 'Verified vendor stock product listing.' : text.trim();
+
+    updateWhatsAppSession(cleanPhone, {
+      state: 'VENDOR_ADD_PRODUCT',
+      vendorAddDraft: {
+        ...draft,
+        description: descText,
+        step: 'STEP_5_DISCOUNT',
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    await sendWhatsAppMessage(
+      cleanPhone,
+      `✅ *Description Saved!*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🏷️ *Step 5 of 5: Any Discount or Promo Price?*\n\n` +
+      `Is there a special discounted promo price for buyers?\n` +
+      `*(e.g., "420,000" or "420k")*\n\n` +
+      `_Or reply "No" if there is no discount._`
+    );
+    return true;
+  }
+
+  // STEP 5: RECEIVING DISCOUNT & PRESENTING CONFIRMATION
+  if (draft.step === 'STEP_5_DISCOUNT') {
+    const isNoDiscount = /^(no|none|nil|skip|0|-|no discount)$/i.test(cleanLower);
+    let discountFormatted = '';
+    let numDiscount: number | undefined;
+
+    if (!isNoDiscount) {
+      const parsedDiscount = parseNumericAmount(text);
+      if (parsedDiscount && parsedDiscount > 0 && parsedDiscount < (draft.numericPrice || Infinity)) {
+        numDiscount = parsedDiscount;
+        discountFormatted = `₦${parsedDiscount.toLocaleString()}`;
+      }
+    }
+
+    updateWhatsAppSession(cleanPhone, {
+      state: 'VENDOR_ADD_PRODUCT',
+      vendorAddDraft: {
+        ...draft,
+        discountPrice: discountFormatted || undefined,
+        numericDiscountPrice: numDiscount,
+        step: 'STEP_6_CONFIRM',
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    const summaryText =
+      `📋 *Confirm Product Listing Details:*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `📦 *Product Name:* ${draft.productName}\n` +
+      `💰 *Regular Price:* ${draft.price}\n` +
+      (discountFormatted ? `🏷️ *Promo Discount:* ${discountFormatted} *(SAVE ₦${((draft.numericPrice || 0) - (numDiscount || 0)).toLocaleString()})*\n` : '') +
+      `📝 *Description:* ${draft.description}\n` +
+      `📸 *Product Photo:* Attached & Saved\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `Tap **Publish Product** to push this live to your WhatsApp Merchant Hub and www.floate.xyz storefront!`;
+
+    await sendWhatsAppMessage(cleanPhone, summaryText, {
+      quickReplies: [
+        { id: 'btn_confirm_add_product', title: '🚀 Publish Product' },
+        { id: 'btn_cancel_add_product', title: '❌ Cancel' },
+      ],
+    });
+    return true;
+  }
+
+  // STEP 6: PUBLISHING PRODUCT
+  if (draft.step === 'STEP_6_CONFIRM' || draft.step === 'CONFIRM' || text === 'btn_confirm_add_product') {
+    if (text === 'btn_confirm_add_product' || /^(yes|publish|confirm|ok|publish product)$/i.test(cleanLower)) {
+      const merchant = await firestoreDb.getMerchant(cleanPhone);
+      const bizName = merchant?.businessName || senderName || 'Verified Merchant';
+      const cleanBizSlug = bizName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+      // 1. Save to Firestore products collection
+      const prodId = `prod_${cleanPhone}_${Date.now()}`;
+      const prodDoc = {
+        id: prodId,
+        merchantId: cleanPhone,
+        userId: cleanPhone,
+        businessName: bizName,
+        whatsapp: cleanPhone,
+        vendorPhone: cleanPhone,
+        state: merchant?.state || 'Lagos',
+        city: merchant?.city || 'Lagos',
+        category: merchant?.category || 'General',
+        product: draft.productName,
+        name: draft.productName,
+        price: draft.price,
+        numericPrice: draft.numericPrice,
+        discountPrice: draft.discountPrice,
+        numericDiscountPrice: draft.numericDiscountPrice,
+        description: draft.description,
+        specs: draft.description,
+        imageUrl: draft.photoUrl || '',
+        photoUrl: draft.photoUrl || '',
+        isVerified: merchant?.isVerified ?? true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await firestoreDb.saveProductListing(prodDoc as any);
+
+      // 2. Sync to Google Sheets
+      try {
+        await sheetsDb.addNewProductListing(
+          cleanPhone,
+          draft.productName || 'Product',
+          draft.discountPrice || draft.price || '0',
+          {
+            businessName: bizName,
+            businessWhatsapp: cleanPhone,
+            businessState: merchant?.state || 'Lagos',
+            businessCity: merchant?.city || 'Lagos',
+            businessCategory: merchant?.category || 'General',
+          }
+        );
+      } catch (sErr) {
+        console.warn('[AddProduct Wizard Sheets Sync Notice]:', sErr);
+      }
+
+      // Reset state
+      updateWhatsAppSession(cleanPhone, { state: 'IDLE', vendorAddDraft: undefined });
+
+      const storeLink = `https://www.floate.xyz/merchant/${cleanBizSlug}`;
+
+      const publishSuccessMsg =
+        `🎉 *PRODUCT PUBLISHED LIVE ON FLOATE!* 🚀\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `📦 *Product:* **${draft.productName}**\n` +
+        `💰 *Price:* ${draft.price}${draft.discountPrice ? ` *(Promo: ${draft.discountPrice})*` : ''}\n` +
+        `📸 *Media:* Photo & Description Published\n\n` +
+        `✅ **Updated in WhatsApp Merchant Hub**\n` +
+        `🌐 **Live on Frontend Storefront:**\n` +
+        `🔗 ${storeLink}\n\n` +
+        `Buyers searching on WhatsApp and floate.xyz can now view, share, and order this item!`;
+
+      await sendWhatsAppMessage(cleanPhone, publishSuccessMsg, {
+        quickReplies: [
+          { id: 'btn_add_product', title: '➕ Add Another Product' },
+          { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
+          { id: 'btn_home', title: '🏠 Main Menu' },
+        ],
+      });
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**

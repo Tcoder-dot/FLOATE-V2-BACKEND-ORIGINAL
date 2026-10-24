@@ -7,6 +7,8 @@ interface Product {
   product?: string;
   price?: number | string;
   numericPrice?: number;
+  discountPrice?: string;
+  numericDiscountPrice?: number;
   category?: string;
   description?: string;
   specs?: string;
@@ -61,30 +63,50 @@ export function VendorStorefront() {
     const search = window.location.search;
     const params = new URLSearchParams(search);
 
-    if (path.includes('/catalog/') || params.get('prod')) {
-      const prodId = path.split('/catalog/')[1] || params.get('prod') || '';
-      if (prodId) {
-        setSelectedProductId(prodId);
-        fetchProductDetails(prodId);
+    let identifier = '';
+    if (path.includes('/merchant/')) {
+      identifier = path.split('/merchant/')[1];
+    } else if (path.includes('/vendor/')) {
+      identifier = path.split('/vendor/')[1];
+    } else if (path.includes('/catalog/')) {
+      identifier = path.split('/catalog/')[1];
+    } else if (path.startsWith('/@')) {
+      identifier = path.slice(2);
+    } else if (params.get('merchant')) {
+      identifier = params.get('merchant') || '';
+    } else if (params.get('phone')) {
+      identifier = params.get('phone') || '';
+    } else if (params.get('vendor')) {
+      identifier = params.get('vendor') || '';
+    } else if (params.get('prod')) {
+      identifier = params.get('prod') || '';
+    }
+
+    if (identifier) {
+      if (path.includes('/catalog/') && (identifier.startsWith('prod_') || identifier.startsWith('FLT-'))) {
+        setSelectedProductId(identifier);
+        fetchProductDetails(identifier);
+      } else {
+        setVendorPhone(identifier);
+        fetchVendorProfile(identifier);
       }
-    } else if (path.includes('/vendor/') || params.get('phone')) {
-      const phone = path.split('/vendor/')[1] || params.get('phone') || '08031112222';
-      setVendorPhone(phone);
-      fetchVendorProfile(phone);
     } else {
       fetchVendorProfile(vendorPhone);
     }
   }, []);
 
-  const fetchVendorProfile = async (phone: string) => {
+  const fetchVendorProfile = async (phoneOrSlug: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/catalog/vendor/${encodeURIComponent(phone)}`);
+      const res = await fetch(`/api/catalog/vendor/${encodeURIComponent(phoneOrSlug)}`);
       const data = await res.json();
       if (data.success) {
         setMerchant(data.merchant);
         setProducts(data.products || []);
         setStatuses(data.statuses || []);
+        if (data.vendorPhone) {
+          setVendorPhone(data.vendorPhone);
+        }
       }
     } catch (err) {
       console.warn('Failed to load vendor profile:', err);
@@ -140,7 +162,14 @@ export function VendorStorefront() {
   };
 
   const copyShareLink = () => {
-    navigator.clipboard.writeText(window.location.href);
+    let cleanUrl = window.location.href;
+    if (merchant?.businessName) {
+      const slug = merchant.businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      if (slug) {
+        cleanUrl = `${window.location.origin}/merchant/${slug}`;
+      }
+    }
+    navigator.clipboard.writeText(cleanUrl);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
   };
@@ -229,42 +258,7 @@ export function VendorStorefront() {
             </div>
           </div>
 
-          {/* 24-Hour Active Status Story Ring Carousel */}
-          {statuses.length > 0 && (
-            <div className="mt-8 pt-6 border-t border-slate-800/80">
-              <div className="flex items-center gap-2 mb-3">
-                <Clock className="w-4 h-4 text-emerald-400" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                  24-Hour Active Status Stories ({statuses.length})
-                </h3>
-              </div>
 
-              <div className="flex items-center gap-4 overflow-x-auto pb-2 scrollbar-none">
-                {statuses.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => setActiveStoryModal(s)}
-                    className="flex flex-col items-center gap-1.5 shrink-0 group focus:outline-none"
-                  >
-                    <div className="w-16 h-16 rounded-full p-0.5 bg-gradient-to-tr from-emerald-400 via-teal-400 to-amber-400 group-hover:scale-105 transition-transform shadow-md">
-                      <div className="w-full h-full rounded-full bg-slate-950 p-0.5 overflow-hidden">
-                        {s.imageUrl ? (
-                          <img src={s.imageUrl} alt="Status" className="w-full h-full object-cover rounded-full" />
-                        ) : (
-                          <div className="w-full h-full bg-slate-800 flex items-center justify-center text-amber-400 text-xs font-bold">
-                            24h
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-medium text-slate-300 max-w-[70px] truncate">
-                      {s.caption || 'Status Update'}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* SINGLE PRODUCT DETAIL VIEW (When Viewing /catalog/:id) */}
@@ -390,9 +384,22 @@ export function VendorStorefront() {
                             <span className="text-[10px]">Product Media</span>
                           </div>
                         )}
-                        <span className="absolute top-2.5 right-2.5 bg-slate-950/80 text-amber-400 border border-amber-500/30 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md backdrop-blur">
-                          {formatPrice(p.price || p.numericPrice)}
-                        </span>
+                        <div className="absolute top-2.5 right-2.5 flex flex-col items-end gap-1">
+                          {p.discountPrice ? (
+                            <>
+                              <span className="bg-emerald-500 text-slate-950 text-[10px] font-mono font-black px-2 py-0.5 rounded-md shadow-md">
+                                PROMO {formatPrice(p.discountPrice)}
+                              </span>
+                              <span className="bg-slate-950/90 text-slate-400 line-through text-[9px] font-mono px-1.5 py-0.5 rounded backdrop-blur">
+                                {formatPrice(p.price || p.numericPrice)}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="bg-slate-950/80 text-amber-400 border border-amber-500/30 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md backdrop-blur">
+                              {formatPrice(p.price || p.numericPrice)}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       <div className="p-4 space-y-2">
