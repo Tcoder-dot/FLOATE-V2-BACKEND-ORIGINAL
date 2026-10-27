@@ -9,7 +9,7 @@ export interface AuthSession {
   challengeCode: string;
   phone: string; // E.164 format, e.g. "+2348031234567"
   canonicalPhone: string; // e.g. "2348031234567"
-  status: 'PENDING' | 'VERIFIED' | 'EXPIRED';
+  status: 'PENDING' | 'VERIFIED' | 'EXPIRED' | 'REQUIRES_REGISTRATION';
   jwt: string | null;
   refreshToken: string | null;
   vendor: any | null;
@@ -162,8 +162,11 @@ export class WhatsAppAuthService {
     if (!messageBody) return null;
 
     const trimmed = messageBody.trim();
-    // Check if message matches "AUTH: FL-XXXX" or "AUTH:FL-XXXX"
-    const match = trimmed.match(/^AUTH:\s*([A-Z0-9-]{7})$/i) || trimmed.match(/^AUTH:\s*(FL-[A-Z0-9]{4})$/i);
+    // Check if message matches "AUTH: FL-XXXX", "AUTH:FL-XXXX", or bare "FL-XXXX"
+    const match =
+      trimmed.match(/^AUTH:\s*([A-Z0-9-]{7})$/i) ||
+      trimmed.match(/^AUTH:\s*(FL-[A-Z0-9]{4})$/i) ||
+      trimmed.match(/^(FL-[A-Z0-9]{4})$/i);
     if (!match) return null;
 
     const extractedCode = match[1].toUpperCase();
@@ -208,26 +211,52 @@ export class WhatsAppAuthService {
 
     const { e164: senderE164, canonical: senderCanonical } = formatPhoneNumber(senderPhone);
 
-    // Retrieve or auto-create merchant profile
+    // Retrieve merchant profile from Firestore
     let vendor = await firestoreDb.getMerchant(senderCanonical);
     if (!vendor) {
-      console.log(`[WhatsApp Auth] Creating default merchant profile for new vendor +${senderCanonical}...`);
-      vendor = {
-        id: senderCanonical,
-        businessName: `Stall +${senderCanonical.slice(-4)}`,
-        ownerFullName: 'Merchant Vendor',
-        whatsapp: senderCanonical,
-        userId: senderCanonical,
-        isVerified: true,
-        credit_balance: 25,
-        status: 'ACTIVE',
-        registeredAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+      console.log(`[WhatsApp Auth] No registered business found for phone +${senderCanonical}`);
+      
+      const unregSession: AuthSession = {
+        ...session,
+        status: 'REQUIRES_REGISTRATION',
+        jwt: null,
+        refreshToken: null,
+        vendor: null,
+        verifiedAt: new Date().toISOString(),
+        verifiedPhone: senderE164,
       };
-      await firestoreDb.saveMerchant(vendor);
+
+      inMemorySessions.set(extractedCode, unregSession);
+      await redisService.set(`auth_session:${extractedCode}`, unregSession, 600);
+      await firestoreDb.saveAuthSession(unregSession);
+
+      const unregMsg =
+        `⚠️ *No registered business found for ${senderE164}*\n\n` +
+        `You need to register your business stall on FLOATE first before logging in.\n\n` +
+        `🎁 Get **5 free customer credits** when you complete your free registration!\n\n` +
+        `👉 *Tap here to register your stall on FLOATE:*\n` +
+        `https://www.floate.xyz/register`;
+
+      try {
+        await sendWhatsAppMessage(senderCanonical, unregMsg, {
+          quickReplies: [
+            { id: 'btn_register_stall', title: '🏪 Register Free Stall' },
+            { id: 'btn_home', title: '🏠 Main Menu' },
+          ],
+        });
+      } catch (msgErr) {
+        console.warn('[WhatsApp Auth] Unregistered notice error:', msgErr);
+      }
+
+      return {
+        handled: true,
+        challengeCode: extractedCode,
+        session: unregSession,
+        replyMessage: unregMsg,
+      };
     }
 
-    // Generate Access Token and Refresh Token
+    // Registered Business: Generate Access Token and Refresh Token
     const accessToken = jwt.sign(
       {
         sub: senderCanonical,
@@ -265,7 +294,7 @@ export class WhatsAppAuthService {
         state: vendor.state || 'Lagos',
         city: vendor.city || 'Lagos',
         isVerified: vendor.isVerified ?? true,
-        credit_balance: vendor.credit_balance ?? 25,
+        credit_balance: vendor.credit_balance ?? 5,
       },
       verifiedAt: new Date().toISOString(),
       verifiedPhone: senderE164,
@@ -276,10 +305,13 @@ export class WhatsAppAuthService {
     await redisService.set(`auth_session:${extractedCode}`, updatedSession, 600); // keep for 10 mins post-verification
     await firestoreDb.saveAuthSession(updatedSession);
 
+    const vendorWebStoreUrl = `https://www.floate.xyz/vendor/${senderCanonical}`;
+
     const autoReplyText =
       `✅ *Account verified successfully!*\n\n` +
-      `Welcome to **FLOATE Merchant Portal** (*${vendor.businessName}*).\n` +
-      `You can now return to your web browser screen—your session is logged in! 🚀`;
+      `Welcome back to **FLOATE Merchant Portal** (*${vendor.businessName}*).\n` +
+      `You can now return to your browser—your session is logged in! 🚀\n\n` +
+      `🏪 *Your Live Web Store:* ${vendorWebStoreUrl}`;
 
     // Send instant WhatsApp auto-reply back to merchant
     try {
@@ -293,7 +325,7 @@ export class WhatsAppAuthService {
       console.warn('[WhatsApp Auth] Auto-reply send notice:', msgErr);
     }
 
-    console.log(`[WhatsApp Auth] 🎉 Session ${extractedCode} VERIFIED for +${senderCanonical}!`);
+    console.log(`[WhatsApp Auth] 🎉 Session ${extractedCode} VERIFIED for registered vendor +${senderCanonical}!`);
 
     return {
       handled: true,
@@ -312,6 +344,9 @@ export class WhatsAppAuthService {
   ): Promise<{
     authenticated: boolean;
     status: string;
+    isRegistered?: boolean;
+    phone?: string;
+    registrationUrl?: string;
     token?: string | null;
     refreshToken?: string | null;
     vendor?: any;
@@ -373,10 +408,22 @@ export class WhatsAppAuthService {
       };
     }
 
+    if (session.status === 'REQUIRES_REGISTRATION') {
+      return {
+        authenticated: false,
+        status: 'REQUIRES_REGISTRATION',
+        isRegistered: false,
+        phone: session.phone,
+        registrationUrl: 'https://www.floate.xyz/register',
+        error: 'Phone number is not registered as a business on FLOATE.',
+      };
+    }
+
     if (session.status === 'VERIFIED') {
       return {
         authenticated: true,
         status: 'VERIFIED',
+        isRegistered: true,
         token: session.jwt,
         refreshToken: session.refreshToken,
         vendor: session.vendor,

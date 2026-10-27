@@ -1029,13 +1029,46 @@ export async function handleWhatsAppWebhook(req: express.Request, res: express.R
             };
           }
 
-          // 1b. Check if message is a WhatsApp-Native One-Click Auth Challenge Code ("AUTH: FL-XXXX")
-          if (rawText && /^AUTH:\s*/i.test(rawText.trim())) {
+          // 1b. Check if message is a WhatsApp-Native One-Click Auth Challenge Code ("AUTH: FL-XXXX" or "FL-XXXX")
+          if (rawText && (/^AUTH:\s*/i.test(rawText.trim()) || /^FL-[A-Z0-9]{4}$/i.test(rawText.trim()))) {
             const authResult = await whatsappAuthService.handleInboundAuthMessage(senderPhone, rawText);
             if (authResult?.handled) {
               console.log(`[WhatsApp Auth] Handled one-click auth challenge for +${senderPhone}`);
               continue;
             }
+          }
+
+          // 1c. Instant Button Intercepts for My Store & Register Stall
+          const cleanPhoneNum = senderPhone.replace(/\D/g, '');
+          const normalizedInput = (rawText || '').trim().toLowerCase();
+
+          if (
+            normalizedInput === 'btn_my_store' ||
+            normalizedInput.includes('my web store') ||
+            normalizedInput.includes('my store')
+          ) {
+            const vendorStoreUrl = `https://www.floate.xyz/vendor/${cleanPhoneNum}`;
+            await sendWhatsAppMessage(
+              senderPhone,
+              `🏪 *Your Live FLOATE Web Storefront:*\n\n` +
+              `Tap the link below to view or share your live store:\n` +
+              `👉 ${vendorStoreUrl}`
+            );
+            continue;
+          }
+
+          if (
+            normalizedInput === 'btn_register_stall' ||
+            normalizedInput.includes('register free stall') ||
+            normalizedInput.includes('register stall')
+          ) {
+            await sendWhatsAppMessage(
+              senderPhone,
+              `🏪 *Open Your Free Stall on FLOATE:*\n\n` +
+              `Tap the link below to register your business in 60 seconds and claim **5 free customer credits**:\n` +
+              `👉 https://www.floate.xyz/register`
+            );
+            continue;
           }
 
           // 2. Add realistic human typing delay (1.5s to 2.2s) before generating output
