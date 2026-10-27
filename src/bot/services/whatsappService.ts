@@ -2,6 +2,7 @@ import express from 'express';
 import { config, isSafePayEnabledForPhone, isVerificationTestingPhone } from '../config.js';
 import { sheetsDb, BusinessListing, normalizePhone, escapeMarkdownText, isSpotlightBusiness, formatListingPrice, parsePriceToNumber } from './sheetsService.js';
 import { firestoreDb, EscrowOrderDoc } from './firestoreService.js';
+import { whatsappAuthService } from './whatsappAuthService.js';
 import { matchCoordinatesToNigerianMarket } from './marketGeoService.js';
 import {
   parseShoppingQuery,
@@ -24,6 +25,7 @@ import {
   isSafetyOrScamInquiry,
   isSafePayIntent,
   isReportVendorIntent,
+  isSponsorOrPromoteIntent,
   isBuyerPaymentOrAgreementIntent,
   processEndChatReasonWithAI,
   detectMutualAgreement,
@@ -1025,6 +1027,15 @@ export async function handleWhatsAppWebhook(req: express.Request, res: express.R
               name: message.location.name,
               address: message.location.address,
             };
+          }
+
+          // 1b. Check if message is a WhatsApp-Native One-Click Auth Challenge Code ("AUTH: FL-XXXX")
+          if (rawText && /^AUTH:\s*/i.test(rawText.trim())) {
+            const authResult = await whatsappAuthService.handleInboundAuthMessage(senderPhone, rawText);
+            if (authResult?.handled) {
+              console.log(`[WhatsApp Auth] Handled one-click auth challenge for +${senderPhone}`);
+              continue;
+            }
           }
 
           // 2. Add realistic human typing delay (1.5s to 2.2s) before generating output
@@ -4398,110 +4409,22 @@ export async function processMasterWhatsAppEngine(params: {
   }
 
   // -------------------------------------------------------------
-  // VENDOR INTERACTIVE PRODUCT UPLOAD & STATUS STORY STATE MACHINE
-  // FLOATE interactively prompts for Name -> Price -> Description after Image
+  // VENDOR INTERACTIVE PRODUCT UPLOAD STATE INTERCEPTION
+  // Any ongoing product upload step (Name, Price, Photo/Specs)
+  // MUST be intercepted here before first contact, visual search, or intent routing!
   // -------------------------------------------------------------
-
-  // 1. Handle Active Session States for Product Creation
-  if (session.state === 'VENDOR_ADD_PRODUCT_NAME') {
-    const productName = text.trim();
-    if (!productName || productName.length < 2) {
-      await sendWhatsAppMessage(cleanPhone, `Please reply with the *name / title* of the product:`);
-      return;
-    }
-
-    updateWhatsAppSession(cleanPhone, {
-      state: 'VENDOR_ADD_PRODUCT_AWAITING_PRICE',
-      pendingCatalogProduct: {
-        ...(session.pendingCatalogProduct || { productName: '' }),
-        productName,
-      },
-    });
-
-    await sendWhatsAppMessage(
-      cleanPhone,
-      `💰 *Price for "${productName}"*: What is the price of this product?\n\n_Example: ₦45,000, 45000, or 25k_`
-    );
+  if (
+    session.state === 'VENDOR_ADD_PRODUCT_NAME' ||
+    session.state === 'VENDOR_ADD_PRODUCT_AWAITING_PRICE' ||
+    session.state === 'VENDOR_ADD_PRODUCT_PHOTO' ||
+    session.state === 'VENDOR_ADD_PRODUCT' ||
+    session.state === 'VENDOR_ADD_PRODUCT_SINGLE_MSG'
+  ) {
+    await handleVendorAddProductStep(cleanPhone, senderName, text, session, imageId, imageMimeType);
     return;
   }
 
-  if (session.state === 'VENDOR_ADD_PRODUCT_AWAITING_PRICE') {
-    let rawPrice = text.trim();
-    if (!rawPrice) {
-      await sendWhatsAppMessage(cleanPhone, `Please reply with the price (e.g. ₦45,000 or 45k):`);
-      return;
-    }
-
-    let formattedPrice = rawPrice;
-    if (/^\d+$/.test(rawPrice.replace(/,/g, ''))) {
-      formattedPrice = `₦${parseInt(rawPrice.replace(/,/g, ''), 10).toLocaleString()}`;
-    } else if (/^\d+k$/i.test(rawPrice)) {
-      const kVal = parseInt(rawPrice.replace(/k/i, ''), 10) * 1000;
-      formattedPrice = `₦${kVal.toLocaleString()}`;
-    }
-
-    const currentPending = session.pendingCatalogProduct || { productName: 'Product' };
-
-    updateWhatsAppSession(cleanPhone, {
-      state: 'VENDOR_ADD_PRODUCT',
-      pendingCatalogProduct: {
-        ...currentPending,
-        price: formattedPrice,
-      },
-    });
-
-    await sendWhatsAppMessage(
-      cleanPhone,
-      `📝 *Description*: Briefly describe *${currentPending.productName}* (e.g. brand, specs, condition), or reply *skip* to complete:`
-    );
-    return;
-  }
-
-  if (session.state === 'VENDOR_ADD_PRODUCT') {
-    const description = text.toLowerCase() === 'skip' ? '' : text.trim();
-    const currentPending = session.pendingCatalogProduct || { productName: 'New Product', price: 'Contact for Price' };
-
-    const merchant = await firestoreDb.getMerchant(cleanPhone);
-    const savedProd = await firestoreDb.saveProductListing({
-      userId: cleanPhone,
-      businessName: merchant?.businessName || senderName,
-      whatsapp: cleanPhone,
-      state: merchant?.state || '',
-      city: merchant?.city || '',
-      category: merchant?.category || 'General',
-      product: currentPending.productName,
-      price: currentPending.price || 'Contact for Price',
-      photoUrl: currentPending.photoUrl || '',
-      specs: description,
-    });
-
-    const productPermalink = `${getFrontendWebUrl()}/catalog/${savedProd.id}`;
-    const webStoreUrl = `${getFrontendWebUrl()}/vendor/${cleanPhone}`;
-
-    updateWhatsAppSession(cleanPhone, {
-      state: 'IDLE',
-      pendingCatalogProduct: undefined,
-    });
-
-    await sendWhatsAppMessage(
-      cleanPhone,
-      `✅ *Product Successfully Uploaded to Website Profile!* 🛍️\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `• *Item:* ${currentPending.productName}\n` +
-      `• *Price:* ${currentPending.price || 'Contact for Price'}\n\n` +
-      `🌐 *Direct Product Page Link:*\n${productPermalink}\n\n` +
-      `🏪 *View Your Web Storefront Catalogue:*\n${webStoreUrl}`,
-      {
-        quickReplies: [
-          { id: 'btn_for_businesses', title: '🏪 Business Hub' },
-          { id: 'btn_home', title: '🏠 Main Menu' },
-        ],
-      }
-    );
-    return;
-  }
-
-  // 2. Handle Inbound Status Updates or New Product Photos
+  // Handle Inbound Status Updates (#status)
   const isStatusUpload = /^(#status|status:|\/status|status\s+update)/i.test(text) || text.includes('#status');
 
   if (isStatusUpload) {
@@ -4547,36 +4470,6 @@ export async function processMasterWhatsAppEngine(params: {
           { id: 'btn_home', title: '🏠 Main Menu' },
         ],
       }
-    );
-    return;
-  }
-
-  // 3. New Product Image Upload Trigger
-  if (imageId && !isStatusUpload) {
-    let prodImgUrl = '';
-    try {
-      const media = await downloadWhatsAppMedia(imageId);
-      if (media) {
-        const savedMedia = await saveCatalogMedia(media.buffer, media.mimeType || 'image/jpeg', `prod_${cleanPhone}_${Date.now()}`);
-        prodImgUrl = savedMedia.publicUrl;
-      }
-    } catch (err) {
-      console.warn('[Product Image Download Error]:', err);
-    }
-
-    updateWhatsAppSession(cleanPhone, {
-      state: 'VENDOR_ADD_PRODUCT_NAME',
-      pendingCatalogProduct: {
-        productName: text.length > 2 && !text.startsWith('/') ? text.split('\n')[0] : '',
-        photoUrl: prodImgUrl,
-      },
-    });
-
-    await sendWhatsAppMessage(
-      cleanPhone,
-      `📸 *Product Image Received!* 🌟\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `What is the *name / title* of this product?`
     );
     return;
   }
@@ -5616,16 +5509,6 @@ export async function processMasterWhatsAppEngine(params: {
     return;
   }
 
-  // 2. Vendor Add Product Step
-  if (
-    (session.state as string) === 'VENDOR_ADD_PRODUCT' ||
-    (session.state as string) === 'VENDOR_ADD_PRODUCT_SINGLE_MSG' ||
-    (session.state as string) === 'VENDOR_ADD_PRODUCT_PHOTO' ||
-    (session.state as string) === 'VENDOR_ADD_PRODUCT_AWAITING_PRICE'
-  ) {
-    await handleVendorAddProductStep(cleanPhone, senderName, text, session);
-    return;
-  }
 
   // 3. Vendor Edit Products Step
   if (session.state === 'VENDOR_EDIT_PRODUCTS') {
@@ -5930,8 +5813,25 @@ export async function processMasterWhatsAppEngine(params: {
   }
 
   // Vendor Add Product
-  if (text === 'btn_vendor_add_product' || /^(add product|add item|list product|list item)$/i.test(cleanLower)) {
+  const isAddProductText =
+    text === 'btn_vendor_add_product' ||
+    text === 'btn_add_product' ||
+    text === 'btn_vendor_add' ||
+    /^(?:i\s*(?:want|wan|need)\s*to\s*(?:add|upload|post|list)(?:\s*my)?\s*product(?:s)?|add\s*(?:my\s*)?product(?:s)?|add\s*(?:my\s*)?item(?:s)?|list\s*(?:my\s*)?product(?:s)?|upload\s*(?:my\s*)?product(?:s)?|post\s*(?:my\s*)?product(?:s)?|add\s*new\s*product|add\s*new\s*item|post\s*new\s*product)$/i.test(cleanLower);
+
+  if (isAddProductText) {
     await startVendorAddProduct(cleanPhone, senderName);
+    return;
+  }
+
+  // Vendor Sponsor / Promote Products
+  if (
+    text === 'btn_vendor_sponsor' ||
+    text === 'btn_sponsor_product' ||
+    text === 'btn_promote_product' ||
+    isSponsorOrPromoteIntent(text)
+  ) {
+    await handleVendorSponsorInquiry(cleanPhone, senderName);
     return;
   }
 
@@ -6078,30 +5978,14 @@ export async function processMasterWhatsAppEngine(params: {
     text === 'REGISTER_SHOP' ||
     text === 'CLAIM_BUSINESS' ||
     text === 'CLAIM_SHOP' ||
-    /^(register business|register my business|register shop|claim business|claim my business|claim listing|sponsor|advertise|promote|advert|promo)$/i.test(cleanLower)
+    text === 'btn_start_registration' ||
+    text === 'btn_register_business' ||
+    text === 'btn_open_web_reg' ||
+    /^(register business|register my business|register shop|claim business|claim my business|claim listing)$/i.test(cleanLower)
   ) {
-    console.log(`[WhatsApp Engine] 🏪 Direct Register / Claim Business flow initiated for +${cleanPhone}`);
-    const displayName = senderName && senderName !== 'Customer' ? `${senderName.trim()}, ` : '';
-    await sendWhatsAppMessage(
-      cleanPhone,
-      `🏪 *Welcome ${displayName}to Floate for Businesses!*\n\n` +
-      `Please save Floate's official number so you can manage your shop and receive buyer inquiries anytime.\n\n` +
-      `How would you like to proceed?`
-    );
-
-    await sendWhatsAppMessage(
-      cleanPhone,
-      `📋 *Choose an option:*\n\n` +
-      `1️⃣ *Claim Existing Business* — If you previously registered via our Google Form or have an existing shop listing in our directory.\n` +
-      `2️⃣ *Register New Business* — If you are listing a new business or store for the first time.`,
-      {
-        quickReplies: [
-          { id: 'btn_claim_shop', title: '🛡️ 1: Claim Existing' },
-          { id: 'btn_start_registration', title: '📝 2: Register New' },
-          { id: 'btn_home', title: '🏠 Main Menu' },
-        ],
-      }
-    );
+    console.log(`[WhatsApp Engine] 🏪 Direct Register Business flow initiated for +${cleanPhone}`);
+    const hints = extractRegistrationHints(text);
+    await startConversationalRegistration(cleanPhone, senderName, hints);
     return;
   }
 
@@ -6324,6 +6208,12 @@ export async function processMasterWhatsAppEngine(params: {
   if (classification.intent === 'MERCHANT_ADD_PRODUCT') {
     console.log(`[WhatsApp Inbound] 🚀 Routing to: startVendorAddProduct (MERCHANT_ADD_PRODUCT)`);
     await startVendorAddProduct(cleanPhone, senderName);
+    return;
+  }
+
+  if (classification.intent === 'MERCHANT_SPONSOR_PRODUCTS') {
+    console.log(`[WhatsApp Inbound] 🚀 Routing to: handleVendorSponsorInquiry (MERCHANT_SPONSOR_PRODUCTS)`);
+    await handleVendorSponsorInquiry(cleanPhone, senderName);
     return;
   }
 
@@ -8800,56 +8690,100 @@ async function handleVendorTopupPaymentVerification(
 }
 
 /**
- * 5b. Add New Product / Service Flow (Single Message Listing or Photo Catalog Upload)
+ * 5-Sponsor. Vendor Product Sponsorship & Spotlight Inquiry Flow
  */
-async function startVendorAddProduct(toPhone: string, senderName: string) {
-  // Check if merchant already reached the free 3 product listings limit
-  const currentProds = await firestoreDb.getProductsByMerchant(toPhone);
-  if (currentProds && currentProds.length >= 3) {
-    await sendWhatsAppMessage(
-      toPhone,
-      `*Catalog Limit Reached (3/3 Free Listings)*\n` +
-      `─────────────────────────\n` +
-      `You currently have 3 active product listings in your catalog.\n\n` +
-      `To add a new product, please manage or replace an existing item from *View Inventory*:\n\n` +
-      currentProds.map((p, idx) => `${idx + 1}. *${p.product}* (${p.price})`).join('\n'),
-      {
-        quickReplies: [
-          { id: 'btn_vendor_edit_products', title: 'View Inventory' },
-          { id: 'btn_for_businesses', title: 'Merchant Menu' },
-          { id: 'btn_home', title: 'Main Menu' },
-        ],
-      }
-    );
+async function handleVendorSponsorInquiry(cleanPhone: string, senderName: string): Promise<void> {
+  const merchant = (await firestoreDb.getMerchant(cleanPhone)) || sheetsDb.getListingByPhone(cleanPhone);
+  const isRegistered = Boolean(
+    merchant &&
+    merchant.businessName &&
+    !merchant.businessName.toLowerCase().includes('unregistered')
+  );
+
+  const displayName = merchant?.businessName || (senderName && senderName !== 'Customer' ? senderName.trim() : '');
+
+  if (isRegistered) {
+    const credits = (merchant as any)?.credit_balance ?? 0;
+    const leadsRemaining = Math.floor(credits / 5);
+
+    const sponsorMsg =
+      `🌟 *Floate Sponsored Spotlight & Product Promotion* 🚀\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `Hello ${displayName ? `*${displayName}*` : 'Store Owner'}! Welcome to Floate's Sponsored Promotion Hub.\n\n` +
+      `Want your store and products to appear at the very top of search results across your market?\n\n` +
+      `✨ *How Floate Sponsored Spotlight Works:*\n` +
+      `• *Top Search Placement:* Your products appear in the top Sponsored Spotlight cards whenever buyers search for items in your market or category.\n` +
+      `• *Verified Trust Badge:* Highlighted with Floate's Gold Verified Vendor trust badge.\n` +
+      `• *Pay-Per-Lead (Zero Wasted Budget):* You only spend 5 Floate Credits when an actual verified buyer connects directly with you on WhatsApp via Floate Secure Line.\n` +
+      `• *Instant Top-Up:* Recharge credits anytime starting from just ₦1,000 (gives 5 qualified customer inquiries).\n\n` +
+      `📊 *Your Current Status:*\n` +
+      `• Available Balance: *${credits} Floate Credits* (~${leadsRemaining} customer leads)\n` +
+      `• Active Products: Search-ready\n\n` +
+      `Ready to boost your products and get more buyer inquiries?`;
+
+    await sendWhatsAppMessage(cleanPhone, sponsorMsg, {
+      quickReplies: [
+        { id: 'btn_vendor_topup_credits', title: '💳 Top Up Credits' },
+        { id: 'btn_vendor_add_product', title: '🛍️ Add Product' },
+        { id: 'btn_for_businesses', title: '🏪 Business Hub' },
+      ],
+    });
     return;
   }
 
-  updateWhatsAppSession(toPhone, {
-    state: 'VENDOR_ADD_PRODUCT_PHOTO',
-    pendingCatalogProduct: undefined,
-  });
+  // Not yet registered as a business
+  const guestMsg =
+    `🏪 *Sponsor & Promote Your Products on Floate!* 🚀\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `Floate connects thousands of Nigerian shoppers to verified market merchants every day.\n\n` +
+    `To sponsor your products and receive direct buyer orders on WhatsApp:\n` +
+    `1️⃣ *Register your business* or claim your existing market stall listing.\n` +
+    `2️⃣ *Add your product listings* (free up to 3 listings).\n` +
+    `3️⃣ Activate *Sponsored Spotlight* to appear first when shoppers search for your goods!\n\n` +
+    `Would you like to register or claim your store now? It takes less than a minute:`;
 
-  await sendWhatsAppMessage(
-    toPhone,
-    `*Add Product to Catalog*\n` +
-    `─────────────────────────\n` +
-    `📸 *Option 1 (Recommended): Send a Photo of Your Product*\n` +
-    `Simply snap or send an image of your item! Write the price in the photo caption (e.g. \`₦35,000\` or \`25k\`) or reply with it.\n\n` +
-    `Floate AI Vision & OCR will automatically detect the product, read labels, and tag it so buyers searching with photos find your store!\n\n` +
-    `📝 *Option 2: Text Description*\n` +
-    `Or reply in 1 text message:\n` +
-    `Product Name: Chelsea Leather Boots\n` +
-    `Price: ₦35,000\n` +
-    `Category: Shoes / Footwear\n\n` +
-    `_Type Cancel anytime to return._`,
-    {
-      quickReplies: [
-        { id: 'btn_vendor_edit_products', title: 'View Inventory' },
-        { id: 'btn_for_businesses', title: 'Merchant Menu' },
-        { id: 'btn_home', title: 'Main Menu' },
-      ],
-    }
-  );
+  await sendWhatsAppMessage(cleanPhone, guestMsg, {
+    quickReplies: [
+      { id: 'btn_start_registration', title: '📝 Register Store' },
+      { id: 'btn_claim_shop', title: '🛡️ Claim Existing Shop' },
+      { id: 'btn_home', title: '🏠 Main Menu' },
+    ],
+  });
+}
+
+/**
+ * 5b. Add New Product / Service Flow (Web Storefront Link)
+ */
+async function startVendorAddProduct(toPhone: string, senderName: string): Promise<void> {
+  const cleanPhone = toPhone.replace(/\D/g, '');
+  const canonicalPhone = cleanPhone.startsWith('0') ? `234${cleanPhone.slice(1)}` : cleanPhone;
+  const merchant = (await firestoreDb.getMerchant(canonicalPhone)) || sheetsDb.getListingByPhone(canonicalPhone);
+  const bizName = merchant?.businessName || 'Your Business';
+  const baseUrl = getFrontendWebUrl();
+  const addProductUrl = `${baseUrl}/vendor/${canonicalPhone}?action=add-product`;
+
+  const addMsg =
+    `🛍️ *Add Products to Your Storefront* 📦\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `Hello ${bizName ? `*${bizName}*` : 'Store Owner'}!\n\n` +
+    `Adding products to Floate is now instant and visual on your Web Storefront.\n\n` +
+    `📸 *What you can do on your storefront:*\n` +
+    `• Snap & upload high-resolution product photos\n` +
+    `• Set your price and promotional deals in Naira\n` +
+    `• Add specifications, sizes, and colors\n` +
+    `• Products publish live immediately to floate.xyz and WhatsApp buyers!\n\n` +
+    `👉 *Tap here to add your product:* \n${addProductUrl}\n\n` +
+    `_Once added, your item will be matched whenever buyers search for it on WhatsApp._`;
+
+  updateWhatsAppSession(cleanPhone, { state: 'IDLE' });
+
+  await sendWhatsAppMessage(cleanPhone, addMsg, {
+    quickReplies: [
+      { id: 'btn_open_storefront', title: '🌐 Open Store' },
+      { id: 'btn_vendor_stats', title: '📊 My Stats' },
+      { id: 'btn_for_businesses', title: '🏪 Business Hub' },
+    ],
+  });
 }
 
 /**
@@ -9038,7 +8972,92 @@ async function checkAndNotifyReferralUnlock(toPhone: string, bizName: string) {
   }
 }
 
-async function handleVendorAddProductStep(toPhone: string, senderName: string, text: string, session: any) {
+/**
+ * Finalizes and saves a product listing to Firestore and Sheets, and sends confirmation with direct links.
+ */
+async function finalizeAndPublishProduct(
+  toPhone: string,
+  senderName: string,
+  productData: {
+    productName: string;
+    price?: string;
+    numericPrice?: number;
+    description?: string;
+    category?: string;
+    photoUrl?: string;
+    visualTags?: string[];
+    ocrText?: string;
+  }
+): Promise<void> {
+  const merchant = (await firestoreDb.getMerchant(toPhone)) || sheetsDb.getListingByPhone(toPhone);
+  const bizName = merchant?.businessName || senderName || 'Verified Merchant';
+  const state = merchant?.state || 'Lagos';
+  const city = merchant?.city || 'Trade Fair';
+
+  const savedProd = await firestoreDb.saveProductListing({
+    userId: merchant?.userId || toPhone,
+    businessName: bizName,
+    whatsapp: toPhone,
+    state,
+    city,
+    category: productData.category || merchant?.category || 'General',
+    product: productData.productName,
+    price: productData.price || 'Contact for Price',
+    negotiation: 'Yes',
+    specs: productData.description || '',
+    photoUrl: productData.photoUrl || '',
+    visualTags: productData.visualTags,
+    ocrText: productData.ocrText,
+  });
+
+  // Check and unlock pending referral reward if this store was referred
+  checkAndNotifyReferralUnlock(toPhone, bizName);
+
+  const productPermalink = `${getFrontendWebUrl()}/catalog/${savedProd.id}`;
+  const webStoreUrl = `${getFrontendWebUrl()}/vendor/${toPhone}`;
+
+  updateWhatsAppSession(toPhone, {
+    state: 'VENDOR_PORTAL',
+    pendingCatalogProduct: undefined,
+  });
+
+  const currentProds = await firestoreDb.getProductsByMerchant(toPhone);
+  const updatedCount = currentProds?.length || 1;
+  const countNotice =
+    updatedCount >= 3
+      ? `\n_You have utilized all 3 of your free product listings (3/3)._`
+      : `\n_You have ${3 - updatedCount} free product listing(s) remaining._`;
+
+  const successMsg =
+    `✅ *Product Successfully Published!* 🛍️\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `• *Item:* ${savedProd.product}\n` +
+    `• *Price:* ${savedProd.price}\n` +
+    `• *Category:* ${savedProd.category}\n` +
+    `• *Location:* ${city}, ${state}\n` +
+    `• *Status:* Live & Discoverable 🌟` +
+    countNotice +
+    `\n\n` +
+    `🌐 *Direct Product Page:*\n${productPermalink}\n\n` +
+    `🏪 *View Your Storefront Catalog:*\n${webStoreUrl}`;
+
+  await sendWhatsAppMessage(toPhone, successMsg, {
+    quickReplies: [
+      { id: 'btn_vendor_add_product', title: '➕ Add Another' },
+      { id: 'btn_vendor_edit_products', title: '📦 View Inventory' },
+      { id: 'btn_for_businesses', title: '🏪 Business Hub' },
+    ],
+  });
+}
+
+async function handleVendorAddProductStep(
+  toPhone: string,
+  senderName: string,
+  text: string,
+  session: any,
+  imageId?: string,
+  imageMimeType?: string
+): Promise<void> {
   const cleanInput = text.trim();
   const cleanLower = cleanInput.toLowerCase();
 
@@ -9055,8 +9074,17 @@ async function handleVendorAddProductStep(toPhone: string, senderName: string, t
     return;
   }
 
+  // If a photo image is sent at ANY point during product upload:
+  if (imageId) {
+    await handleVendorProductPhotoUpload(toPhone, senderName, imageId, imageMimeType, text);
+    return;
+  }
+
   // If vendor tapped "Change Price"
   if (cleanInput === 'btn_edit_catalog_price') {
+    updateWhatsAppSession(toPhone, {
+      state: 'VENDOR_ADD_PRODUCT_AWAITING_PRICE',
+    });
     await sendWhatsAppMessage(
       toPhone,
       `💰 *Enter New Price:*\n\nReply with the selling price for *${session.pendingCatalogProduct?.productName || 'this item'}* (e.g. \`₦35,000\` or \`20k\`):`,
@@ -9092,151 +9120,148 @@ async function handleVendorAddProductStep(toPhone: string, senderName: string, t
     return;
   }
 
-  // CASE A: State is VENDOR_ADD_PRODUCT_AWAITING_PRICE or user confirmed pending catalog product
+  // -------------------------------------------------------------
+  // STEP 1: Product Name / Title
+  // -------------------------------------------------------------
   if (
-    session.pendingCatalogProduct &&
-    (session.state === 'VENDOR_ADD_PRODUCT_AWAITING_PRICE' || cleanInput === 'btn_confirm_catalog_product')
+    session.state === 'VENDOR_ADD_PRODUCT_NAME' ||
+    (session.state === 'VENDOR_ADD_PRODUCT_PHOTO' && !session.pendingCatalogProduct?.productName)
   ) {
-    const pending = session.pendingCatalogProduct;
-    let finalPrice = pending.price || 'Contact for Price';
-    let finalNumericPrice = pending.numericPrice || parsePriceToNumber(finalPrice) || 0;
-
-    if (cleanInput === 'btn_price_contact' || /^(contact|ask|negotiable)/i.test(cleanLower)) {
-      finalPrice = 'Contact for Price';
-      finalNumericPrice = 0;
-    } else if (cleanInput !== 'btn_confirm_catalog_product') {
-      const formatted = formatProductPrice(cleanInput);
-      if (formatted) {
-        finalPrice = formatted;
-        finalNumericPrice = parsePriceToNumber(formatted) || 0;
-      }
+    if (!cleanInput || cleanInput.length < 2) {
+      await sendWhatsAppMessage(
+        toPhone,
+        `Please reply with the *name / title* of the product you want to list (e.g. "Wireless Bluetooth Earbuds"):`,
+        {
+          quickReplies: [
+            { id: 'btn_cancel_catalog_product', title: '❌ Cancel' },
+          ],
+        }
+      );
+      return;
     }
 
-    // Fetch merchant business details
-    const merchant = await firestoreDb.getMerchant(toPhone) || sheetsDb.getListingByPhone(toPhone);
-    const bizName = merchant?.businessName || 'Verified Merchant';
-    const state = merchant?.state || 'Lagos';
-    const city = merchant?.city || 'Trade Fair';
-
-    // Save to Firestore and Sheets with photoUrl, visualTags, ocrText
-    const savedProd = await firestoreDb.saveProductListing({
-      userId: merchant?.userId || toPhone,
-      businessName: bizName,
-      whatsapp: toPhone,
-      state,
-      city,
-      category: pending.category || 'General',
-      product: pending.productName,
-      price: finalPrice,
-      negotiation: 'Yes',
-      specs: pending.description || '',
-      photoUrl: pending.photoUrl,
-      visualTags: pending.visualTags,
-      ocrText: pending.ocrText,
-    });
-
-    // Check and unlock pending referral reward if this store was referred
-    checkAndNotifyReferralUnlock(toPhone, bizName);
+    const productName = cleanInput
+      .replace(/^(?:product\s*name|item\s*name|product|item|title)[:\s-]+/i, '')
+      .trim();
 
     updateWhatsAppSession(toPhone, {
-      state: 'VENDOR_PORTAL',
-      pendingCatalogProduct: undefined,
+      state: 'VENDOR_ADD_PRODUCT_AWAITING_PRICE',
+      pendingCatalogProduct: {
+        ...(session.pendingCatalogProduct || {}),
+        productName,
+      },
     });
 
-    const updatedCount = (currentProds?.length || 0) + 1;
-    const countNotice = updatedCount >= 3
-      ? `\n_You have utilized all 3 of your free product listings (3/3)._`
-      : `\n_You have ${3 - updatedCount} free product listing(s) remaining._`;
-
-    const successMsg =
-      `*Product Published to Catalog!* 📸\n` +
-      `─────────────────────────\n` +
-      `Item: *${savedProd.product}*\n` +
-      `Price: *${savedProd.price}*\n` +
-      `Category: *${savedProd.category}*\n` +
-      `Location: *${city}, ${state}*\n` +
-      `Visual Search: *Active & Discoverable*` +
-      countNotice + `\n` +
-      `─────────────────────────\n` +
-      `Buyers uploading photos of similar products will now be connected to your store!`;
-
-    await sendWhatsAppMessage(toPhone, successMsg, {
-      quickReplies: [
-        { id: 'btn_vendor_add_product', title: 'Add Another' },
-        { id: 'btn_vendor_edit_products', title: 'View Inventory' },
-        { id: 'btn_for_businesses', title: 'Merchant Menu' },
-      ],
-    });
-    return;
-  }
-
-  // CASE B: Single Message Text Product Listing
-  const parsed = parseSingleMessageProduct(cleanInput);
-  if (!parsed.isValid) {
     await sendWhatsAppMessage(
       toPhone,
-      `⚠️ ${parsed.reason || 'Please send a product photo or provide product name and price.'}\n\n` +
-      `📸 *Option 1:* Send a photo of the item (with price in caption or reply)\n` +
-      `📝 *Option 2:* Send in 1 message:\n` +
-      `Product Name: \n` +
-      `Price: \n` +
-      `Category / Description: `
+      `💰 *Set Selling Price* (Step 2 of 3)\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `Product: *${productName}*\n\n` +
+      `What is your selling price?\n\n` +
+      `_Example: ₦45,000, 45000, or 45k_`,
+      {
+        quickReplies: [
+          { id: 'btn_price_contact', title: '📞 Contact for Price' },
+          { id: 'btn_cancel_catalog_product', title: '❌ Cancel' },
+        ],
+      }
     );
     return;
   }
 
-  // Fetch merchant business details
-  const merchant = await firestoreDb.getMerchant(toPhone) || sheetsDb.getListingByPhone(toPhone);
-  const bizName = merchant?.businessName || 'Verified Merchant';
-  const state = merchant?.state || 'Lagos';
-  const city = merchant?.city || 'Trade Fair';
+  // -------------------------------------------------------------
+  // STEP 2: Selling Price
+  // -------------------------------------------------------------
+  if (session.state === 'VENDOR_ADD_PRODUCT_AWAITING_PRICE') {
+    let finalPrice = 'Contact for Price';
+    let numericPrice = 0;
 
-  // Save to Firestore and Sheets
-  const savedProd = await firestoreDb.saveProductListing({
-    userId: merchant?.userId || toPhone,
-    businessName: bizName,
-    whatsapp: toPhone,
-    state,
-    city,
-    category: parsed.category || 'General',
-    product: parsed.productName,
-    price: parsed.price || 'Contact for Price',
-    negotiation: 'Yes',
-    specs: parsed.description || '',
-  });
+    if (cleanInput === 'btn_price_contact' || /^(contact|ask|negotiable|call|dm)/i.test(cleanLower)) {
+      finalPrice = 'Contact for Price';
+      numericPrice = 0;
+    } else {
+      const formatted = formatProductPrice(cleanInput);
+      if (formatted) {
+        finalPrice = formatted;
+        numericPrice = parsePriceToNumber(formatted) || 0;
+      } else {
+        const rawDigits = cleanInput.replace(/[^\d]/g, '');
+        if (rawDigits) {
+          const num = parseInt(rawDigits, 10);
+          finalPrice = `₦${num.toLocaleString()}`;
+          numericPrice = num;
+        } else {
+          finalPrice = cleanInput;
+        }
+      }
+    }
 
-  // Check and unlock pending referral reward if this store was referred
-  checkAndNotifyReferralUnlock(toPhone, bizName);
+    const currentPending = session.pendingCatalogProduct || { productName: 'Product' };
+    const productName = currentPending.productName;
 
-  updateWhatsAppSession(toPhone, {
-    state: 'VENDOR_PORTAL',
-    pendingCatalogProduct: undefined,
-  });
+    // If a photo was already attached (from image analysis or previous step) and user confirmed:
+    if (cleanInput === 'btn_confirm_catalog_product' || (currentPending.photoUrl && !cleanInput.startsWith('btn_edit'))) {
+      await finalizeAndPublishProduct(toPhone, senderName, {
+        ...currentPending,
+        price: finalPrice,
+        numericPrice,
+      });
+      return;
+    }
 
-  const updatedCount = (currentProds?.length || 0) + 1;
-  const countNotice = updatedCount >= 3
-    ? `\n_You have utilized all 3 of your free product listings (3/3)._`
-    : `\n_You have ${3 - updatedCount} free product listing(s) remaining._`;
+    // Move to Step 3: Photo or Description
+    updateWhatsAppSession(toPhone, {
+      state: 'VENDOR_ADD_PRODUCT_PHOTO',
+      pendingCatalogProduct: {
+        ...currentPending,
+        price: finalPrice,
+        numericPrice,
+      },
+    });
 
-  const successMsg =
-    `*Product Published Successfully*\n` +
-    `─────────────────────────\n` +
-    `Item: *${savedProd.product}*\n` +
-    `Price: *${savedProd.price}*\n` +
-    `Category: *${savedProd.category}*\n` +
-    `Location: *${city}, ${state}*\n` +
-    `Status: *Live & Discoverable*` +
-    countNotice + `\n` +
-    `─────────────────────────\n` +
-    `What would you like to do next?`;
+    await sendWhatsAppMessage(
+      toPhone,
+      `📸 *Product Photo or Description* (Step 3 of 3)\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `• *Item:* ${productName}\n` +
+      `• *Price:* ${finalPrice}\n\n` +
+      `Snap or upload a *photo* of your product, or reply with key specifications / description (brand, color, sizes, warranty).\n\n` +
+      `_Tap *Skip & Publish* if you don't have a photo right now!_`,
+      {
+        quickReplies: [
+          { id: 'btn_skip_product_photo', title: '⏭️ Skip & Publish' },
+          { id: 'btn_cancel_catalog_product', title: '❌ Cancel' },
+        ],
+      }
+    );
+    return;
+  }
 
-  await sendWhatsAppMessage(toPhone, successMsg, {
-    quickReplies: [
-      { id: 'btn_vendor_add_product', title: 'Add Another' },
-      { id: 'btn_vendor_edit_products', title: 'View Inventory' },
-      { id: 'btn_for_businesses', title: 'Merchant Menu' },
-    ],
-  });
+  // -------------------------------------------------------------
+  // STEP 3: Photo or Description / Specs
+  // -------------------------------------------------------------
+  if (
+    session.state === 'VENDOR_ADD_PRODUCT_PHOTO' ||
+    session.state === 'VENDOR_ADD_PRODUCT' ||
+    session.state === 'VENDOR_ADD_PRODUCT_SINGLE_MSG'
+  ) {
+    const isSkip =
+      cleanInput === 'btn_skip_product_photo' ||
+      cleanInput === 'btn_confirm_catalog_product' ||
+      /^(skip|publish|done|none|no|later|next|no photo)$/i.test(cleanLower);
+
+    const description = isSkip ? '' : cleanInput;
+    const currentPending = session.pendingCatalogProduct || {
+      productName: 'New Product',
+      price: 'Contact for Price',
+    };
+
+    await finalizeAndPublishProduct(toPhone, senderName, {
+      ...currentPending,
+      description: description || currentPending.description || '',
+    });
+    return;
+  }
 }
 
 /**
@@ -10575,50 +10600,38 @@ async function startConversationalRegistration(
   senderName: string,
   prefill?: { category?: string; location?: string; businessName?: string }
 ) {
-  // Trust & Identity Verification (Active for admin tester or when verification is requested)
-  if (isVerificationTestingPhone(toPhone)) {
-    await startWhatsAppVerificationFlow(toPhone, senderName, prefill);
-    return;
-  }
-
-  // STANDARD WORKFLOW (For all other users - workflow 100% intact!)
   const cleanPhone = toPhone.replace(/\D/g, '');
+  const canonicalPhone = cleanPhone.startsWith('0') ? `234${cleanPhone.slice(1)}` : cleanPhone;
   updateWhatsAppSession(cleanPhone, {
-    state: 'AWAITING_SINGLE_MSG_REGISTRATION',
-    regDraft: {
-      step: 'AWAITING_DETAILS',
-      updatedAt: new Date().toISOString(),
-    },
+    state: 'IDLE',
   });
 
   const category = prefill?.category || '';
   const location = prefill?.location || '';
   const businessName = prefill?.businessName || '';
 
-  const isSolar = category.toLowerCase().includes('solar');
-  const egStore = businessName || (isSolar ? 'Sunrise Solar Technologies' : (category ? `${category.split(' ')[0]} Hub` : 'Divine Footwear'));
-  const egLoc = location || 'Alaba International Market, Lagos';
-  const egCat = category || 'Solar Panels & Inverters';
-  const egProds = isSolar
-    ? '1KVA Hybrid Inverter - 180k\n300W Monocrystalline Solar Panel - 65k\n200Ah Tubular Solar Battery - 280k'
-    : 'Men Leather Slippers - 15k\nChelsea Boots - 35k\nCasual Sneakers - 25k';
-
   const baseUrl = getFrontendWebUrl();
-  const webRegUrl = `${baseUrl}/register?phone=${encodeURIComponent(cleanPhone)}&name=${encodeURIComponent(senderName || '')}&biz=${encodeURIComponent(businessName || '')}`;
+  const webRegUrl = `${baseUrl}/register?phone=${encodeURIComponent(canonicalPhone)}&name=${encodeURIComponent(senderName || '')}&biz=${encodeURIComponent(businessName || '')}&cat=${encodeURIComponent(category || '')}&loc=${encodeURIComponent(location || '')}`;
+
+  const displayName = senderName && senderName !== 'Customer' ? `${senderName.trim()}, ` : '';
 
   const promptMsg =
-    `*Register Your Store on FLOATE* 🏪\n` +
-    `─────────────────────────\n` +
-    `Connect with verified buyers across Nigeria with zero commission and instant WhatsApp admin updates.\n\n` +
-    `Please complete your store registration and live video selfie verification via our secure web portal:\n\n` +
-    `🌐 *Web Registration & Verification Portal:*\n${webRegUrl}\n\n` +
-    `_Once registered, you can manage products and post 24-hour status stories directly by chatting with Floate on WhatsApp!_\n\n` +
-    `_Type Cancel anytime to return._`;
+    `🏪 *Welcome ${displayName}to Floate for Businesses!* 🚀\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `Floate helps store owners and merchants connect directly with buyers across Nigeria on WhatsApp with **zero commission**.\n\n` +
+    `✨ *What you get when you register:*\n` +
+    `• 🏷️ *Verified Storefront on floate.xyz* — Your own permanent web store & catalogue\n` +
+    `• 🎁 *25 Free Floate Credits* — Connect with 5 customer leads for free\n` +
+    `• 💬 *Direct WhatsApp Buyer Leads* — Verified shoppers chat straight with you\n` +
+    `• 📸 *Instant Visual Catalogue* — Post photos, prices, and special deals with 1 tap\n\n` +
+    `👉 *Click here to set up your store in 2 minutes:*\n${webRegUrl}\n\n` +
+    `_Once registered, you can manage your items and check your buyer inquiries anytime right here on WhatsApp!_`;
 
   await sendWhatsAppMessage(toPhone, promptMsg, {
     quickReplies: [
-      { id: 'btn_open_web_reg', title: '🌐 Open Web Portal' },
+      { id: 'btn_open_web_reg', title: '🌐 Register Store' },
       { id: 'role_buyer', title: '🛍️ Shop as Buyer' },
+      { id: 'btn_home', title: '🏠 Main Menu' },
     ],
   });
 }
@@ -11170,15 +11183,25 @@ async function handleRegistrationSteps(
 
   const parsed = parseSingleMessageRegistration(cleanInput);
   if (!parsed.isValid) {
+    const baseUrl = getFrontendWebUrl();
+    const cleanDigits = toPhone.replace(/\D/g, '');
+    const canonicalPhone = cleanDigits.startsWith('0') ? `234${cleanDigits.slice(1)}` : cleanDigits;
+    const webRegUrl = `${baseUrl}/register?phone=${encodeURIComponent(canonicalPhone)}&name=${encodeURIComponent(senderName || '')}`;
+
+    updateWhatsAppSession(toPhone, { state: 'IDLE' });
     await sendWhatsAppMessage(
       toPhone,
-      `⚠️ ${parsed.reason || 'Please provide all store details in one message.'}\n\n` +
-      `*Please reply in a single message:*\n` +
-      `Store Name: \n` +
-      `Owner Full Name: \n` +
-      `Market / City: \n` +
-      `Category: \n` +
-      `Main Products & Prices: `
+      `🏪 *Welcome to Floate for Businesses!*\n\n` +
+      `Business registration is now completed quickly via our official web portal with **zero commission** and **25 free credits**!\n\n` +
+      `👉 *Click here to set up your store in 2 minutes:*\n${webRegUrl}\n\n` +
+      `_Once registered, you can manage your items and check your buyer inquiries anytime right here on WhatsApp!_`,
+      {
+        quickReplies: [
+          { id: 'btn_open_web_reg', title: '🌐 Register Store' },
+          { id: 'role_buyer', title: '🛍️ Shop as Buyer' },
+          { id: 'btn_home', title: '🏠 Main Menu' },
+        ],
+      }
     );
     return;
   }

@@ -272,6 +272,7 @@ export type InboundIntentType =
   | 'MERCHANT_EDIT_CATALOG'
   | 'MERCHANT_STATS'
   | 'MERCHANT_PORTAL'
+  | 'MERCHANT_SPONSOR_PRODUCTS'
   | 'REFERRAL_PROGRAM'
   | 'BROWSE_MARKETS'
   | 'BUYER_SEARCH';
@@ -296,6 +297,33 @@ export interface InboundClassificationResult {
   extractedLocation?: string | null;
   extractedSafePayDeal?: NaturalLanguageSafePayDeal;
   rawText: string;
+}
+
+/**
+ * Detects whether the user is inquiring about sponsoring, boosting, promoting, or advertising
+ * their store, products, or catalog on Floate.
+ */
+export function isSponsorOrPromoteIntent(rawInput: string): boolean {
+  if (!rawInput) return false;
+  const text = rawInput.trim();
+  const lower = text.toLowerCase().replace(/[^a-z0-9 _]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // Fast explicit tokens
+  if (
+    text === 'btn_vendor_sponsor' ||
+    text === 'btn_vendor_promote' ||
+    text === 'SPONSOR_PRODUCTS' ||
+    /^(?:sponsor|promote|advertise|boost|advert|ads?|sponsor my product|sponsor my products|promote my product|promote my products|sponsor product|promote product|how to sponsor|how do i sponsor|i want to sponsor|i want to sponsor my product|i want to sponsor my products)$/i.test(lower)
+  ) {
+    return true;
+  }
+
+  return (
+    /\b((?:i\s+(?:want|wan|will\s+like|would\s+like)\s+to\s+)?(?:sponsor|promote|advertise|boost)\s+(?:my\s+|our\s+|a\s+|this\s+)?(?:products?|items?|store|shop|goods|listing|business))\b/i.test(lower) ||
+    /\b(how\s+(?:do\s+i|can\s+i|to)\s+(?:sponsor|promote|advertise|boost)\s+(?:my\s+|our\s+)?(?:products?|items?|store|shop|goods))\b/i.test(lower) ||
+    /\b(sponsor(?:ing)?\s+(?:my|our|this|the)?\s*(?:products?|items?|business|store|shop))\b/i.test(lower) ||
+    /\b(push\s+(?:my|our)\s+market|blow\s+(?:my|our)\s+business|show\s+(?:my|our)\s+(?:items?|market|products?)\s+for\s+front|sponsor\s+my\s+products?|promote\s+my\s+products?|advertise\s+my\s+products?)\b/i.test(lower)
+  );
 }
 
 /**
@@ -353,11 +381,6 @@ export function isBusinessRegistrationPhrase(rawInput: string): boolean {
 
   // "My shop is in Alaba", "My store is located in Onitsha"
   if (/\b(?:my\s+shop|my\s+store|our\s+shop|our\s+store)\s+(?:is\s+(?:in|at|located)|dey\s+(?:for|inside))\b/i.test(lower)) {
-    return true;
-  }
-
-  // Sponsorship phrases
-  if (/\b(?:sponsor|advertise|promote|advert|promo)\s+(?:my|this|the)?\s+(?:products?|items?|business|store|shop)\b/i.test(lower)) {
     return true;
   }
 
@@ -473,6 +496,22 @@ export async function classifyInboundIntent(rawInput: string): Promise<InboundCl
     return { intent: 'REFERRAL_PROGRAM', confidence: 1.0, rawText: text };
   }
 
+  // Fast Sponsor & Product Promotion Inquiry check
+  if (isSponsorOrPromoteIntent(text)) {
+    return { intent: 'MERCHANT_SPONSOR_PRODUCTS', confidence: 1.0, rawText: text };
+  }
+
+  // Fast Add Product Intent check
+  if (
+    text === 'btn_vendor_add_product' ||
+    text === 'btn_add_product' ||
+    text === 'btn_vendor_add' ||
+    /\b((?:i\s+(?:want|wan|will\s+like|would\s+like)\s+to\s+)?(?:add|upload|list|post)\s+(?:a\s+|new\s+|my\s+|another\s+)?(?:product|products|item|items|listing|stock|goods)|add\s+(?:my\s+)?product|upload\s+(?:my\s+)?product|list\s+(?:my\s+)?product|post\s+(?:my\s+)?product)\b/i.test(lower) ||
+    /^(?:add product|add item|new product|list product|upload product|post product|i want to add my product|i want to add product|how do i add product|how to add product)$/i.test(lower)
+  ) {
+    return { intent: 'MERCHANT_ADD_PRODUCT', confidence: 1.0, rawText: text };
+  }
+
   // Fast Merchant Portal / Business Management & Natural Language Registration check
   if (
     isBusinessRegistrationPhrase(text) ||
@@ -526,10 +565,19 @@ export async function classifyInboundIntent(rawInput: string): Promise<InboundCl
   ) {
     return { intent: 'BUYER_SEARCH', confidence: 1.0, rawText: text };
   }
+  if (isSponsorOrPromoteIntent(text)) {
+    return { intent: 'MERCHANT_SPONSOR_PRODUCTS', confidence: 1.0, rawText: text };
+  }
   if (text === 'btn_browse_markets' || /^(browse markets|markets|view markets|market hub|market hubs)$/i.test(lower)) {
     return { intent: 'BROWSE_MARKETS', confidence: 1.0, rawText: text };
   }
-  if (text === 'btn_vendor_add_product') {
+  if (
+    text === 'btn_vendor_add_product' ||
+    text === 'btn_add_product' ||
+    text === 'btn_vendor_add' ||
+    /\b((?:i\s+(?:want|wan)\s+to\s+)?(?:add|upload|list|post)\s+(?:a\s+|new\s+|my\s+|another\s+)?(?:product|products|item|items|listing|stock|goods)|add\s+(?:my\s+)?product|upload\s+(?:my\s+)?product|list\s+(?:my\s+)?product|post\s+(?:my\s+)?product)\b/i.test(lower) ||
+    /^(?:add product|add item|new product|list product|upload product|post product|i want to add my product|i want to add product|how do i add product|how to add product)$/i.test(lower)
+  ) {
     return { intent: 'MERCHANT_ADD_PRODUCT', confidence: 1.0, rawText: text };
   }
   if (
@@ -581,7 +629,8 @@ Classify the message into EXACTLY ONE of the following intents:
 - "MERCHANT_BANK_SETUP": Setting up, adding, or updating a merchant payout/settlement bank account (e.g., "add bank account", "bank details", "payout account", "set up bank").
 - "MERCHANT_PORTAL": Explicitly managing, registering, or accessing the user's OWN store or seller account (e.g., "how do I access my business", "open my business", "vendor portal", "my shop", "manage my store", "register my business", "sell on floate", "merchant dashboard").
 - "MERCHANT_STATS": Asking specifically to view business stats, store performance, search appearances, analytics, or leads (e.g., "my business stats", "show my store stats", "view stats", "my stats", "store analytics", "how many views do I have").
-- "MERCHANT_ADD_PRODUCT": Specifically asking to upload, list, or add a new product/service to inventory (e.g., "add product", "upload item", "list a new shoe", "add new item to store").
+- "MERCHANT_SPONSOR_PRODUCTS": Specifically asking to sponsor, boost, promote, or run ads for their products, store, or inventory on Floate (e.g. "I want to sponsor my products", "sponsor my product", "how do I sponsor my products", "promote my product", "boost my stall", "run ads for my store", "sponsor product").
+- "MERCHANT_ADD_PRODUCT": Specifically asking to upload, list, or add a new product/service to inventory (e.g., "I want to add my product", "add product", "upload item", "list a new shoe", "add new item to store").
 - "MERCHANT_EDIT_CATALOG": Specifically asking to edit, update, delete, or manage existing products or prices (e.g., "edit products", "update prices", "edit inventory", "change price").
 - "LOCATION_CHANGE": Asking to change, update, or switch default shopping location/city (e.g., "change my location to Lagos", "update my city", "set location Abuja").
 - "BROWSE_MARKETS": Asking to explore market hubs (e.g., "browse markets", "show markets in Lagos", "view onitsha markets").
@@ -589,25 +638,27 @@ Classify the message into EXACTLY ONE of the following intents:
 - "BUYER_SEARCH": The user is searching to buy, find, order, or hire a product, item, service, or professional (e.g., "leather shoes in Onitsha", "iPhone 13", "I need a lawyer", "hire video editor", "solar inverter 200k", selecting a vendor number or business name).
 
 CRITICAL RULES:
-1. "I want to do pay on delivery", "pay on delivery", "I want pay on delivery", "POD order", "hold 25k", "SafePay 50k", or activating/requesting a SafePay deal, escrow, or Pay on Delivery (POD) transaction -> ALWAYS SAFEPAY_DEAL_CREATE (NEVER BUYER_SEARCH).
-2. "how do I avoid scammers in floate", "is floate safe", "how does safe pay work" -> SAFETY_OR_ESCROW_INFO (NOT BUYER_SEARCH, NOT REPORT_VENDOR)
-3. "I want to report a vendor", "I want ro report a vendor", "report vendor", "report a seller" -> REPORT_VENDOR (NOT BUYER_SEARCH, NOT SAFETY_OR_ESCROW_INFO)
-4. "add bank account", "set payout account" -> MERCHANT_BANK_SETUP
-5. "how are you floate", "how far", "how you dey" -> SMALL_TALK (NOT BUYER_SEARCH)
-6. "Hello Floate", "Hi Floate", "hello", "good morning" -> GREETING (NOT BUYER_SEARCH)
-7. "what is floate about", "tell me about floate", "what does floate do" -> BRAND_QUESTION (NOT BUYER_SEARCH)
-8. "how do I connect to a vendor", "how to connect" -> HELP_OR_SUPPORT (NOT BUYER_SEARCH)
-9. "my business", "access my business", "vendor portal", "my store", "manage my shop", "register my business" -> MERCHANT_PORTAL (NOT BUYER_SEARCH)
-10. "Stats", "my stats", "my business stats", "store analytics" -> MERCHANT_STATS (NOT BUYER_SEARCH)
-11. Vendor names, vendor numbers (1-10), clicking a vendor button, or connecting to a store from search results is ALWAYS BUYER_SEARCH (NEVER MERCHANT_PORTAL).
-12. ONLY classify as MERCHANT_PORTAL when the user is explicitly asking to manage, view, or register their OWN seller account.
-13. A standalone price number (e.g. "10000", "₦10,000", "25k"), product name, or product update (e.g. "edit Chelsea boots to 10000", "change price to 10k") is NEVER SAFEPAY_DEAL_CREATE unless there is an explicit request for SafePay, escrow, or Pay on Delivery.
+1. "I want to sponsor my products", "sponsor my product", "promote my products" -> ALWAYS MERCHANT_SPONSOR_PRODUCTS (NEVER BUYER_SEARCH).
+2. "I want to add my product", "add my product", "add product", "upload product" -> ALWAYS MERCHANT_ADD_PRODUCT (NEVER BUYER_SEARCH).
+3. "I want to do pay on delivery", "pay on delivery", "I want pay on delivery", "POD order", "hold 25k", "SafePay 50k", or activating/requesting a SafePay deal, escrow, or Pay on Delivery (POD) transaction -> ALWAYS SAFEPAY_DEAL_CREATE (NEVER BUYER_SEARCH).
+4. "how do I avoid scammers in floate", "is floate safe", "how does safe pay work" -> SAFETY_OR_ESCROW_INFO (NOT BUYER_SEARCH, NOT REPORT_VENDOR)
+5. "I want to report a vendor", "I want ro report a vendor", "report vendor", "report a seller" -> REPORT_VENDOR (NOT BUYER_SEARCH, NOT SAFETY_OR_ESCROW_INFO)
+6. "add bank account", "set payout account" -> MERCHANT_BANK_SETUP
+7. "how are you floate", "how far", "how you dey" -> SMALL_TALK (NOT BUYER_SEARCH)
+8. "Hello Floate", "Hi Floate", "hello", "good morning" -> GREETING (NOT BUYER_SEARCH)
+9. "what is floate about", "tell me about floate", "what does floate do" -> BRAND_QUESTION (NOT BUYER_SEARCH)
+10. "how do I connect to a vendor", "how to connect" -> HELP_OR_SUPPORT (NOT BUYER_SEARCH)
+11. "my business", "access my business", "vendor portal", "my store", "manage my shop", "register my business" -> MERCHANT_PORTAL (NOT BUYER_SEARCH)
+12. "Stats", "my stats", "my business stats", "store analytics" -> MERCHANT_STATS (NOT BUYER_SEARCH)
+13. Vendor names, vendor numbers (1-10), clicking a vendor button, or connecting to a store from search results is ALWAYS BUYER_SEARCH (NEVER MERCHANT_PORTAL).
+14. ONLY classify as MERCHANT_PORTAL when the user is explicitly asking to manage, view, or register their OWN seller account.
+15. A standalone price number (e.g. "10000", "₦10,000", "25k"), product name, or product update (e.g. "edit Chelsea boots to 10000", "change price to 10k") is NEVER SAFEPAY_DEAL_CREATE unless there is an explicit request for SafePay, escrow, or Pay on Delivery.
 
 User message: "${text}"
 
 Output strictly a JSON object matching:
 {
-  "intent": "SAFEPAY_DEAL_CREATE" | "GREETING" | "SMALL_TALK" | "BRAND_QUESTION" | "SAFETY_OR_ESCROW_INFO" | "HELP_OR_SUPPORT" | "REPORT_VENDOR" | "MERCHANT_BANK_SETUP" | "MERCHANT_PORTAL" | "MERCHANT_STATS" | "MERCHANT_ADD_PRODUCT" | "MERCHANT_EDIT_CATALOG" | "LOCATION_CHANGE" | "BROWSE_MARKETS" | "RESET_OR_HOME" | "BUYER_SEARCH",
+  "intent": "SAFEPAY_DEAL_CREATE" | "GREETING" | "SMALL_TALK" | "BRAND_QUESTION" | "SAFETY_OR_ESCROW_INFO" | "HELP_OR_SUPPORT" | "REPORT_VENDOR" | "MERCHANT_BANK_SETUP" | "MERCHANT_PORTAL" | "MERCHANT_STATS" | "MERCHANT_SPONSOR_PRODUCTS" | "MERCHANT_ADD_PRODUCT" | "MERCHANT_EDIT_CATALOG" | "LOCATION_CHANGE" | "BROWSE_MARKETS" | "RESET_OR_HOME" | "BUYER_SEARCH",
   "confidence": 0.95,
   "cleanProduct": "extracted product name if BUYER_SEARCH or null",
   "location": "extracted location if mentioned or null"
@@ -717,11 +768,18 @@ function fallbackIntentClassifier(text: string, lower: string): InboundClassific
     return { intent: 'MERCHANT_STATS', confidence: 0.96, rawText: text };
   }
 
+  // 6b. Sponsor / Promote Products & Shop
+  if (isSponsorOrPromoteIntent(text)) {
+    return { intent: 'MERCHANT_SPONSOR_PRODUCTS', confidence: 0.98, rawText: text };
+  }
+
   // 7. Merchant Direct Actions (Add / Edit / Access)
   if (
     text === 'btn_vendor_add_product' ||
-    /\b(add\s+(a\s+)?(new\s+)?(product|item|listing|stock)|upload\s+(a\s+)?(new\s+)?(product|item)|list\s+(a\s+)?(new\s+)?(product|item))\b/i.test(lower) ||
-    /^(add product|addproduct|add item|new product|list product|upload product|add a product|post product)$/i.test(lower)
+    text === 'btn_add_product' ||
+    text === 'btn_vendor_add' ||
+    /\b((?:i\s+(?:want|wan)\s+to\s+)?(?:add|upload|list|post)\s+(?:a\s+|new\s+|my\s+|another\s+)?(?:product|products|item|items|listing|stock|goods)|add\s+(?:my\s+)?product|upload\s+(?:my\s+)?product|list\s+(?:my\s+)?product|post\s+(?:my\s+)?product)\b/i.test(lower) ||
+    /^(?:add product|addproduct|add item|new product|list product|upload product|add a product|post product|i want to add my product|i want to add product|how do i add product|how to add product)$/i.test(lower)
   ) {
     return { intent: 'MERCHANT_ADD_PRODUCT', confidence: 0.95, rawText: text };
   }

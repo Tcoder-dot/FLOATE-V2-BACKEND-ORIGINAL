@@ -9,6 +9,8 @@ import { statsManager } from './src/bot/statsManager.js';
 import { processSimulatedMessage } from './src/bot/services/botSimulator.js';
 import { sheetsDb, normalizePhone, parsePriceToNumber } from './src/bot/services/sheetsService.js';
 import { firestoreDb } from './src/bot/services/firestoreService.js';
+import { whatsappAuthService } from './src/bot/services/whatsappAuthService.js';
+import { bachsPaymentService } from './src/bot/services/bachsPaymentService.js';
 import { executeSearch } from './src/bot/services/searchService.js';
 import {
   handleWhatsAppVerification,
@@ -2414,42 +2416,233 @@ async function startServer() {
     }
   });
 
-  // 3j. Web Business Registration & Video Verification Endpoints
+  // 3j. Web Business Registration & Product Addition Endpoints
   app.post('/api/register/business', async (req, res) => {
     try {
-      const { businessName, ownerName, phone, location, category, marketHub, shopAddress } = req.body || {};
+      const {
+        businessName,
+        ownerName,
+        phone,
+        location,
+        state,
+        city,
+        category,
+        marketHub,
+        shopAddress,
+        initialProduct,
+      } = req.body || {};
       const cleanPhone = (phone || '').replace(/\D/g, '');
 
       if (!cleanPhone || !businessName) {
         return res.status(400).json({ success: false, error: 'Phone number and Business Name are required.' });
       }
 
-      await firestoreDb.saveMerchant({
+      const canonicalPhone = cleanPhone.startsWith('0') ? `234${cleanPhone.slice(1)}` : cleanPhone;
+      const resolvedState = state || (location ? location.split(',').pop()?.trim() : 'Lagos') || 'Lagos';
+      const resolvedCity = city || (location ? location.split(',')[0]?.trim() : 'Lagos') || 'Lagos';
+      const resolvedLocation = `${resolvedCity}, ${resolvedState}`;
+      const resolvedCategory = category || 'General Commerce';
+
+      // 1. Save / Update Merchant in Firestore
+      const merchantDoc = {
         id: `merchant_${cleanPhone}`,
-        whatsapp: cleanPhone,
+        whatsapp: canonicalPhone,
         businessName,
         ownerFullName: ownerName || businessName,
-        city: location || 'Lagos',
-        state: location || 'Lagos',
-        category: category || 'General',
-        marketHub: marketHub || 'Main Market',
-        shopAddress: shopAddress || location || 'Nigeria',
-        isVerified: false,
-        verificationStatus: 'AWAITING_VIDEO_SELFIE',
+        city: resolvedCity,
+        state: resolvedState,
+        category: resolvedCategory,
+        marketHub: marketHub || shopAddress || 'Main Market',
+        shopAddress: shopAddress || resolvedLocation,
+        isVerified: true,
+        verificationStatus: 'ACTIVE',
         status: 'ACTIVE',
-        credit_balance: 100,
+        credit_balance: 25, // Award 25 free credits (5 customer leads)
         registeredAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      });
+      };
+
+      await firestoreDb.saveMerchant(merchantDoc as any);
+
+      // Also mirror to Google Sheets
+      try {
+        await sheetsDb.registerBusiness({
+          userId: cleanPhone,
+          whatsapp: canonicalPhone,
+          businessName,
+          ownerFullName: ownerName || businessName,
+          state: resolvedState,
+          city: resolvedCity,
+          category: resolvedCategory,
+          product: initialProduct?.product || businessName,
+          price: initialProduct?.price || '₦25,000',
+          identityVerified: true,
+        });
+      } catch (sheetErr) {
+        console.warn('[Sheets Mirror Warning]:', sheetErr);
+      }
+
+      // 2. Save Initial Product if provided
+      let savedInitialProduct = null;
+      if (initialProduct && initialProduct.product) {
+        let photoUrl = initialProduct.photoUrl || '';
+        if (!photoUrl && initialProduct.photoBase64) {
+          try {
+            const buffer = Buffer.from(initialProduct.photoBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+            const savedMedia = await saveCatalogMedia(buffer, 'image/jpeg', `prod_${cleanPhone}_${Date.now()}`);
+            photoUrl = savedMedia.publicUrl;
+          } catch (mErr) {
+            console.warn('[Media Save Warning]:', mErr);
+          }
+        }
+
+        savedInitialProduct = await firestoreDb.saveProductListing({
+          userId: canonicalPhone,
+          businessName,
+          whatsapp: canonicalPhone,
+          state: resolvedState,
+          city: resolvedCity,
+          category: resolvedCategory,
+          product: initialProduct.product,
+          price: initialProduct.price || '₦25,000',
+          specs: initialProduct.description || 'Verified product from stock',
+          photoUrl: photoUrl || undefined,
+        });
+
+        try {
+          await sheetsDb.addNewProductListing(
+            canonicalPhone,
+            initialProduct.product,
+            initialProduct.price || '25000',
+            {
+              businessName,
+              businessWhatsapp: canonicalPhone,
+              businessState: resolvedState,
+              businessCity: resolvedCity,
+              businessCategory: resolvedCategory,
+            }
+          );
+        } catch (e) {}
+      }
+
+      // Generate Storefront URL
+      const cleanSlug = businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      const storeUrl = `https://floate.xyz/vendor/${canonicalPhone}`;
+
+      // 3. Dispatch automated celebratory WhatsApp notification
+      if (isWhatsAppConfigured()) {
+        try {
+          const welcomeMsg =
+            `🎉 *Welcome to Floate for Businesses, ${businessName}!* 🏪\n\n` +
+            `Your official web storefront is now active:\n` +
+            `🌐 *${storeUrl}*\n\n` +
+            `🎁 *25 Free Floate Credits* have been added to your wallet (up to 5 direct customer connections)!\n\n` +
+            `When buyers across Nigeria search for your products, Floate connects them directly to your WhatsApp with zero commission.\n\n` +
+            `👉 *Storefront Permalink:* ${storeUrl}\n` +
+            `_You can manage products, view customer leads, and check stats anytime right here or on your web store!_`;
+
+          await sendWhatsAppMessage(canonicalPhone, welcomeMsg);
+        } catch (waErr) {
+          console.warn('[Registration WhatsApp Notice Warning]:', waErr);
+        }
+      }
 
       return res.json({
         success: true,
-        message: 'Business successfully registered! Please complete video selfie verification.',
-        phone: cleanPhone,
+        message: 'Business successfully registered! 25 free credits awarded.',
+        phone: canonicalPhone,
+        storeUrl,
+        slug: cleanSlug,
+        creditsAwarded: 25,
+        initialProduct: savedInitialProduct,
       });
     } catch (err: any) {
       console.error('[Web Registration Error]:', err);
       return res.status(500).json({ success: false, error: err?.message || 'Registration failed' });
+    }
+  });
+
+  // 3j-2. Add Product directly from Storefront
+  app.post('/api/catalog/product', async (req, res) => {
+    try {
+      const { phone, businessName, product, price, category, specs, description, photoUrl, photoBase64 } = req.body || {};
+      const cleanPhone = String(phone || '').replace(/\D/g, '');
+
+      if (!cleanPhone || !product) {
+        return res.status(400).json({ success: false, error: 'Phone number and Product Name are required.' });
+      }
+
+      const canonicalPhone = cleanPhone.startsWith('0') ? `234${cleanPhone.slice(1)}` : cleanPhone;
+      const merchant = await firestoreDb.getMerchant(canonicalPhone);
+      const effectiveBizName = businessName || merchant?.businessName || 'Verified Merchant';
+      const effectiveState = merchant?.state || 'Lagos';
+      const effectiveCity = merchant?.city || 'Lagos';
+      const effectiveCategory = category || merchant?.category || 'General';
+
+      let resolvedPhotoUrl = photoUrl || '';
+      if (!resolvedPhotoUrl && photoBase64) {
+        try {
+          const buffer = Buffer.from(photoBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+          const savedMedia = await saveCatalogMedia(buffer, 'image/jpeg', `prod_${canonicalPhone}_${Date.now()}`);
+          resolvedPhotoUrl = savedMedia.publicUrl;
+        } catch (mErr) {
+          console.warn('[Product Media Save Warning]:', mErr);
+        }
+      }
+
+      const savedProduct = await firestoreDb.saveProductListing({
+        userId: canonicalPhone,
+        businessName: effectiveBizName,
+        whatsapp: canonicalPhone,
+        state: effectiveState,
+        city: effectiveCity,
+        category: effectiveCategory,
+        product,
+        price: price || '₦25,000',
+        specs: description || specs || 'Verified quality product from stock',
+        photoUrl: resolvedPhotoUrl || undefined,
+      });
+
+      try {
+        await sheetsDb.addNewProductListing(
+          canonicalPhone,
+          product,
+          price || '25000',
+          {
+            businessName: effectiveBizName,
+            businessWhatsapp: canonicalPhone,
+            businessState: effectiveState,
+            businessCity: effectiveCity,
+            businessCategory: effectiveCategory,
+          }
+        );
+      } catch (e) {}
+
+      const storeUrl = `https://floate.xyz/vendor/${canonicalPhone}`;
+
+      // Notify vendor on WhatsApp
+      if (isWhatsAppConfigured()) {
+        try {
+          const prodMsg =
+            `🛍️ *New Product Added to Storefront!* 📦\n\n` +
+            `*${product}* (${price || '₦25,000'}) is now live on your official catalogue:\n` +
+            `🌐 *${storeUrl}*\n\n` +
+            `Buyers searching for "${product}" on Floate will be connected directly to your WhatsApp!`;
+          await sendWhatsAppMessage(canonicalPhone, prodMsg);
+        } catch (waErr) {
+          console.warn('[Add Product WhatsApp Notice Warning]:', waErr);
+        }
+      }
+
+      return res.json({
+        success: true,
+        message: 'Product successfully added to storefront!',
+        product: savedProduct,
+        storeUrl,
+      });
+    } catch (err: any) {
+      console.error('[Add Product Error]:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to add product' });
     }
   });
 
@@ -2677,6 +2870,211 @@ async function startServer() {
       });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed to delete merchant' });
+    }
+  });
+
+  // --- WhatsApp-Native One-Click Authentication Endpoints ---
+
+  // 1. POST /api/v1/auth/whatsapp/request-code
+  app.post(['/api/v1/auth/whatsapp/request-code', '/api/auth/whatsapp/request-code'], async (req, res) => {
+    try {
+      const { phone, phoneNumber } = req.body || {};
+      const inputPhone = phone || phoneNumber;
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || '127.0.0.1';
+
+      if (!inputPhone) {
+        return res.status(400).json({ status: 'error', error: 'Phone number is required.' });
+      }
+
+      const result = await whatsappAuthService.requestAuthCode(String(inputPhone), clientIp);
+      return res.json(result);
+    } catch (err: any) {
+      console.error('[API /request-code Error]:', err?.message || err);
+      return res.status(400).json({ status: 'error', error: err?.message || 'Failed to request auth challenge code.' });
+    }
+  });
+
+  // 2. GET /api/v1/auth/whatsapp/session-status?code=FL-7920
+  app.get(['/api/v1/auth/whatsapp/session-status', '/api/auth/whatsapp/session-status'], async (req, res) => {
+    try {
+      const code = (req.query.code || req.query.challenge_code || req.query.challengeCode || '').toString();
+      if (!code) {
+        return res.status(400).json({ authenticated: false, status: 'BAD_REQUEST', error: 'Query parameter "code" is required.' });
+      }
+
+      const result = await whatsappAuthService.getSessionStatus(code);
+      return res.json(result);
+    } catch (err: any) {
+      console.error('[API /session-status Error]:', err?.message || err);
+      return res.status(500).json({ authenticated: false, status: 'ERROR', error: err?.message || 'Failed to check session status.' });
+    }
+  });
+
+  // 3. Webhook aliases for /api/v1/webhooks/whatsapp
+  app.get(['/api/v1/webhooks/whatsapp', '/api/webhooks/whatsapp'], handleWhatsAppVerification);
+  app.post(['/api/v1/webhooks/whatsapp', '/api/webhooks/whatsapp'], handleWhatsAppWebhook);
+
+  // --- Bachs.io Payment Gateway & Sponsored Product Ad Endpoints ---
+
+  // 1. Create Ad Campaign & Generate Bachs.io Checkout URL
+  app.post(['/api/ads/create', '/api/v1/ads/create'], async (req, res) => {
+    try {
+      const {
+        merchantPhone,
+        merchantName,
+        packageType,
+        headline,
+        description,
+        offerText,
+        rawImageUrl,
+        targetCategory,
+        targetLocation,
+        targetUrl,
+      } = req.body || {};
+
+      if (!merchantPhone || !headline) {
+        return res.status(400).json({ success: false, error: 'Merchant phone and ad headline are required.' });
+      }
+
+      const result = await bachsPaymentService.createAdCampaign({
+        merchantPhone: String(merchantPhone),
+        merchantName: merchantName ? String(merchantName) : undefined,
+        packageType: packageType || 'HERO_BANNER',
+        headline: String(headline),
+        description: description ? String(description) : undefined,
+        offerText: offerText ? String(offerText) : undefined,
+        rawImageUrl: rawImageUrl ? String(rawImageUrl) : undefined,
+        targetCategory: targetCategory ? String(targetCategory) : undefined,
+        targetLocation: targetLocation ? String(targetLocation) : undefined,
+        targetUrl: targetUrl ? String(targetUrl) : undefined,
+      });
+
+      return res.json(result);
+    } catch (err: any) {
+      console.error('[API /api/ads/create Error]:', err?.message || err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to create ad campaign.' });
+    }
+  });
+
+  // 2. Fetch Active Approved Banner Ads for floate.xyz Carousel
+  app.get(['/api/ads/active', '/api/v1/ads/active'], async (_req, res) => {
+    try {
+      const activeAds = await firestoreDb.getActiveBannerAds();
+      return res.json({ success: true, count: activeAds.length, ads: activeAds });
+    } catch (err: any) {
+      console.error('[API /api/ads/active Error]:', err?.message || err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch active banner ads.' });
+    }
+  });
+
+  // 3. Bachs.io Webhook Endpoint
+  app.post(['/api/webhooks/bachs', '/api/bachs-webhook', '/webhook/bachs'], async (req, res) => {
+    try {
+      const sig = (req.headers['x-bachs-signature'] || req.headers['verif-hash']) as string;
+      const result = await bachsPaymentService.handleWebhook(req.body, sig);
+      return res.json(result);
+    } catch (err: any) {
+      console.error('[Bachs Webhook Error]:', err?.message || err);
+      return res.status(500).json({ success: false, error: err?.message || 'Webhook handling failed.' });
+    }
+  });
+
+  // 4. Admin Approve / Reject / Manual Create Ad Endpoints
+  app.post('/api/admin/create-ad', async (req, res) => {
+    try {
+      const {
+        headline,
+        offerText,
+        description,
+        merchantName,
+        merchantPhone,
+        imageUrl,
+        targetCategory,
+        targetLocation,
+        targetUrl,
+        budget,
+      } = req.body || {};
+
+      if (!headline || !merchantPhone) {
+        return res.status(400).json({ success: false, error: 'Headline and merchant phone are required.' });
+      }
+
+      const cleanPhone = String(merchantPhone).replace(/\D/g, '');
+      const adId = `ad_manual_${Date.now().toString(36)}`;
+
+      const adDoc: any = {
+        id: adId,
+        merchantPhone: cleanPhone,
+        merchantName: merchantName || 'Verified Merchant',
+        adType: 'HERO_BANNER',
+        headline: String(headline),
+        description: description || 'Sponsored Product Banner on Floate',
+        offerText: offerText || 'Verified Deal',
+        rawImageUrl: imageUrl || '',
+        designedBannerUrl: imageUrl || '',
+        targetUrl: targetUrl || `https://floate.xyz/vendor/${cleanPhone}`,
+        targetCategory: targetCategory || 'General',
+        targetLocation: targetLocation || 'Nigeria',
+        status: 'ACTIVE',
+        impressions: 0,
+        clicks: 0,
+        budget: Number(budget) || 10000,
+        submittedVia: 'ADMIN_MANUAL',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        approvedAt: new Date().toISOString(),
+      };
+
+      await firestoreDb.saveAdDoc(adDoc);
+
+      return res.json({
+        success: true,
+        message: 'Active sponsored banner ad created successfully and deployed to floate.xyz carousel!',
+        ad: adDoc,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to create manual ad.' });
+    }
+  });
+
+  app.post(['/api/ads/approve', '/api/v1/ads/approve'], async (req, res) => {
+    try {
+      const { adId } = req.body || {};
+      if (!adId) return res.status(400).json({ success: false, error: 'adId is required.' });
+
+      const result = await bachsPaymentService.approveAdCampaign(String(adId));
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to approve ad.' });
+    }
+  });
+
+  app.post(['/api/ads/reject', '/api/v1/ads/reject'], async (req, res) => {
+    try {
+      const { adId, reason } = req.body || {};
+      if (!adId) return res.status(400).json({ success: false, error: 'adId is required.' });
+
+      const result = await bachsPaymentService.rejectAdCampaign(String(adId), reason ? String(reason) : undefined);
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to reject ad.' });
+    }
+  });
+
+  // 5. Ad Interaction Tracking (Impressions / Clicks)
+  app.post('/api/ads/track', async (req, res) => {
+    try {
+      const { adId, event } = req.body || {};
+      if (!adId) return res.status(400).json({ success: false, error: 'adId is required.' });
+
+      if (event === 'click') {
+        await firestoreDb.recordAdClick(String(adId));
+      } else {
+        await firestoreDb.recordAdImpression(String(adId));
+      }
+      return res.json({ success: true });
+    } catch (err) {
+      return res.status(500).json({ success: false });
     }
   });
 

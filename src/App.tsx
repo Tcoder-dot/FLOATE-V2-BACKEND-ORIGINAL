@@ -9,15 +9,34 @@ import { LiveVerificationPortal } from './components/LiveVerificationPortal';
 import { VendorStorefront } from './components/VendorStorefront';
 import { RecommendationEngineStudio } from './components/RecommendationEngineStudio';
 import { FrontendHandshakeHub } from './components/FrontendHandshakeHub';
+import { StorefrontRegistration } from './components/StorefrontRegistration';
+import { WhatsAppOneClickAuthModal } from './components/WhatsAppOneClickAuthModal';
+import { SponsorProductPortal } from './components/SponsorProductPortal';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'admin' | 'handshake' | 'engine' | 'storefront' | 'verify' | 'search' | 'tester' | 'assets' | 'docs'>('admin');
+  const [activeTab, setActiveTab] = useState<'admin' | 'handshake' | 'engine' | 'storefront' | 'register' | 'sponsor' | 'verify' | 'search' | 'tester' | 'assets' | 'docs'>('admin');
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  // Check URL parameters / path to auto-route to Storefront, Handshake, or Live Verification
+  // Check URL parameters / path to auto-route to Register, Storefront, Handshake, Sponsor or Live Verification
   useEffect(() => {
     const path = window.location.pathname;
     const search = window.location.search;
-    if (path.includes('/handshake') || search.includes('handshake=') || path.includes('/floate-xyz')) {
+    if (
+      path.includes('/sponsor') ||
+      path.includes('/ads') ||
+      search.includes('sponsor=') ||
+      search.includes('action=sponsor')
+    ) {
+      setActiveTab('sponsor');
+    } else if (
+      path.includes('/register') ||
+      path.includes('/register-business') ||
+      search.includes('register=') ||
+      search.includes('action=register') ||
+      path.includes('/onboarding')
+    ) {
+      setActiveTab('register');
+    } else if (path.includes('/handshake') || search.includes('handshake=') || path.includes('/floate-xyz')) {
       setActiveTab('handshake');
     } else if (
       path.includes('/catalog/') ||
@@ -105,6 +124,28 @@ export default function App() {
               Web Storefront & Catalogue
             </button>
             <button
+              onClick={() => setActiveTab('register')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeTab === 'register'
+                  ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md font-black'
+                  : 'text-amber-400 hover:text-amber-300 hover:bg-amber-950/40 border border-amber-500/30'
+              }`}
+            >
+              <Store className="w-3.5 h-3.5" />
+              Register Store (+25 Credits)
+            </button>
+            <button
+              onClick={() => setActiveTab('sponsor')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeTab === 'sponsor'
+                  ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md font-black'
+                  : 'text-amber-400 hover:text-amber-300 hover:bg-amber-950/40 border border-amber-500/30'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Sponsor Products & Ads
+            </button>
+            <button
               onClick={() => setActiveTab('verify')}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${
                 activeTab === 'verify'
@@ -159,6 +200,12 @@ export default function App() {
               Open WhatsApp
               <ExternalLink className="w-3 h-3 opacity-80" />
             </a>
+            <button
+              onClick={() => setIsAuthModalOpen(true)}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm flex items-center gap-1.5"
+            >
+              🔐 1-Click WhatsApp Login
+            </button>
           </div>
         </div>
       </header>
@@ -169,12 +216,24 @@ export default function App() {
         {activeTab === 'handshake' && <FrontendHandshakeHub />}
         {activeTab === 'engine' && <RecommendationEngineStudio />}
         {activeTab === 'storefront' && <VendorStorefront />}
+        {activeTab === 'register' && <StorefrontRegistration />}
+        {activeTab === 'sponsor' && <SponsorProductPortal />}
         {activeTab === 'verify' && <LiveVerificationPortal />}
         {activeTab === 'assets' && <VisualAssetGallery />}
         {activeTab === 'search' && <WebSearchDemo />}
         {activeTab === 'tester' && <BotTester />}
         {activeTab === 'docs' && <ApiDocs />}
       </main>
+
+      {/* WhatsApp One-Click Authentication Modal */}
+      <WhatsAppOneClickAuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthenticated={(authData) => {
+          console.log('[App] Auth Successful:', authData);
+          setActiveTab('storefront');
+        }}
+      />
     </div>
   );
 }

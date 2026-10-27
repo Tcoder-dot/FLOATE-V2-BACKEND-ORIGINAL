@@ -4796,7 +4796,206 @@ export class FirestoreService {
     const { deleteDoc } = await import('firebase/firestore');
     await deleteDoc(doc(db, 'ads', id));
   }
+
+  /**
+   * Save or Update WhatsApp One-Click Auth Session
+   */
+  public async saveAuthSession(sessionDoc: any): Promise<void> {
+    try {
+      const codeKey = (sessionDoc.challengeCode || sessionDoc.code || '').trim().toUpperCase();
+      if (!codeKey) return;
+      await setDoc(doc(db, 'auth_sessions', codeKey), this.sanitizeForFirestore({
+        ...sessionDoc,
+        updatedAt: new Date().toISOString(),
+      }));
+    } catch (e) {
+      console.warn('[Firestore] saveAuthSession notice:', e);
+    }
+  }
+
+  /**
+   * Get WhatsApp One-Click Auth Session
+   */
+  public async getAuthSession(code: string): Promise<any | null> {
+    try {
+      const codeKey = (code || '').trim().toUpperCase();
+      if (!codeKey) return null;
+      const snap = await getDoc(doc(db, 'auth_sessions', codeKey));
+      if (!snap.exists()) return null;
+      return snap.data();
+    } catch (e) {
+      console.warn('[Firestore] getAuthSession notice:', e);
+      return null;
+    }
+  }
+
+  /**
+   * Checks if a buyer connected with a merchant within the 48-hour duplicate protection window
+   */
+  public async checkLeadDuplicate48Hours(merchantPhone: string, buyerPhone: string): Promise<boolean> {
+    try {
+      const cleanMerchant = (merchantPhone || '').replace(/\D/g, '');
+      const cleanBuyer = (buyerPhone || '').replace(/\D/g, '');
+      if (!cleanMerchant || !cleanBuyer) return false;
+
+      const windowCutoffMs = Date.now() - 48 * 60 * 60 * 1000; // 48 Hours
+      const snap = await getDocs(
+        query(
+          collection(db, 'leads'),
+          where('merchantId', '==', cleanMerchant),
+          where('buyerPhone', '==', cleanBuyer),
+          limit(5)
+        )
+      );
+
+      let isDuplicate = false;
+      snap.forEach((d) => {
+        const data = d.data();
+        const createdMs = new Date(data.timestamp || data.createdAt || 0).getTime();
+        if (createdMs > windowCutoffMs) {
+          isDuplicate = true;
+        }
+      });
+
+      return isDuplicate;
+    } catch (e) {
+      console.warn('[Firestore] checkLeadDuplicate48Hours notice:', e);
+      return false;
+    }
+  }
+
+  /**
+   * 1-to-1 Lead Credit Engine Processor (₦200 / Credit, 48h Duplicate Protection, Zero-Balance Soft Landing)
+   */
+  public async processLeadCreditDeduction(params: {
+    merchantPhone: string;
+    buyerPhone: string;
+    buyerName?: string;
+    buyerLocation?: string;
+    item?: string;
+    productId?: string;
+  }): Promise<{
+    duplicate48h: boolean;
+    deducted: boolean;
+    remainingCredits: number;
+    isZeroBalance: boolean;
+    leadId: string;
+  }> {
+    const { merchantPhone, buyerPhone, buyerName, buyerLocation, item, productId } = params;
+    const cleanMerchant = (merchantPhone || '').replace(/\D/g, '');
+    const cleanBuyer = (buyerPhone || '').replace(/\D/g, '');
+    const leadId = `lead_web_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    // 1. Check 48-Hour Duplicate Protection Rule
+    const isDuplicate = await this.checkLeadDuplicate48Hours(cleanMerchant, cleanBuyer);
+    const merchant = await this.getMerchant(cleanMerchant);
+    const currentCredits = typeof merchant?.credit_balance === 'number' ? merchant.credit_balance : 5;
+
+    if (isDuplicate) {
+      console.log(`[Lead Credit Engine] 🛡️ 48h Duplicate Protection active for buyer +${cleanBuyer} & merchant +${cleanMerchant}. 0 credits deducted.`);
+      
+      // Log lead without deducting credit
+      await setDoc(doc(db, 'leads', leadId), this.sanitizeForFirestore({
+        id: leadId,
+        ref: `REF-${leadId.slice(-6)}`,
+        buyerId: cleanBuyer,
+        buyerPhone: cleanBuyer,
+        buyerName: buyerName || 'Web Visitor',
+        merchantId: cleanMerchant,
+        item: item || 'Store Item',
+        location: buyerLocation || 'Nigeria',
+        cost: 0,
+        duplicate48h: true,
+        timestamp: new Date().toISOString(),
+      }));
+
+      return {
+        duplicate48h: true,
+        deducted: false,
+        remainingCredits: currentCredits,
+        isZeroBalance: currentCredits <= 0,
+        leadId,
+      };
+    }
+
+    // 2. New Lead - Check Merchant Balance
+    if (currentCredits > 0) {
+      const newCredits = Math.max(0, currentCredits - 1);
+      
+      // Update merchant balance in Firestore
+      if (merchant) {
+        await this.saveMerchant({
+          ...merchant,
+          credit_balance: newCredits,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
+      // Log Lead Deduction Transaction
+      await setDoc(doc(db, 'leads', leadId), this.sanitizeForFirestore({
+        id: leadId,
+        ref: `REF-${leadId.slice(-6)}`,
+        buyerId: cleanBuyer,
+        buyerPhone: cleanBuyer,
+        buyerName: buyerName || 'Web Visitor',
+        merchantId: cleanMerchant,
+        item: item || 'Store Item',
+        location: buyerLocation || 'Nigeria',
+        cost: 1, // 1 Credit = 1 Lead (₦200)
+        duplicate48h: false,
+        timestamp: new Date().toISOString(),
+      }));
+
+      await setDoc(doc(db, 'transactions', `tx_lead_${leadId}`), this.sanitizeForFirestore({
+        id: `tx_lead_${leadId}`,
+        merchantId: cleanMerchant,
+        type: 'LEAD_DEDUCTION',
+        amount: 1,
+        description: `1 Lead Credit deducted for buyer "${buyerName || 'Web Visitor'}" (${item || 'Store Item'})`,
+        reference: leadId,
+        timestamp: new Date().toISOString(),
+      }));
+
+      console.log(`[Lead Credit Engine] ⚡ 1 Credit deducted for merchant +${cleanMerchant}. New Balance: ${newCredits} Credits.`);
+
+      return {
+        duplicate48h: false,
+        deducted: true,
+        remainingCredits: newCredits,
+        isZeroBalance: newCredits === 0,
+        leadId,
+      };
+    }
+
+    // 3. Zero-Balance Soft Landing (0 Credits remaining)
+    console.log(`[Lead Credit Engine] 🔥 Zero-Balance Soft Landing triggered for merchant +${cleanMerchant}. Customer waiting alert triggered.`);
+
+    await setDoc(doc(db, 'leads', leadId), this.sanitizeForFirestore({
+      id: leadId,
+      ref: `REF-${leadId.slice(-6)}`,
+      buyerId: cleanBuyer,
+      buyerPhone: cleanBuyer,
+      buyerName: buyerName || 'Web Visitor',
+      merchantId: cleanMerchant,
+      item: item || 'Store Item',
+      location: buyerLocation || 'Nigeria',
+      cost: 0,
+      status: 'PENDING_MERCHANT_TOPUP',
+      duplicate48h: false,
+      timestamp: new Date().toISOString(),
+    }));
+
+    return {
+      duplicate48h: false,
+      deducted: false,
+      remainingCredits: 0,
+      isZeroBalance: true,
+      leadId,
+    };
+  }
 }
 
 export const firestoreDb = new FirestoreService();
+
+
 

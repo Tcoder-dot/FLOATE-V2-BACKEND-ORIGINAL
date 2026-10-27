@@ -1,5 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Store, ShieldCheck, MapPin, MessageCircle, Sparkles, Clock, Share2, ArrowLeft, ExternalLink, Package } from 'lucide-react';
+import {
+  Store,
+  ShieldCheck,
+  MapPin,
+  MessageCircle,
+  Sparkles,
+  Clock,
+  Share2,
+  ArrowLeft,
+  ExternalLink,
+  Package,
+  Plus,
+  X,
+  Upload,
+  Camera,
+  Check
+} from 'lucide-react';
 
 interface Product {
   id: string;
@@ -57,11 +73,27 @@ export function VendorStorefront() {
   const [loading, setLoading] = useState<boolean>(true);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
 
+  // Add Product Modal State
+  const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [newProdName, setNewProdName] = useState('');
+  const [newProdPrice, setNewProdPrice] = useState('');
+  const [newProdCategory, setNewProdCategory] = useState('');
+  const [newProdDesc, setNewProdDesc] = useState('');
+  const [newProdPhotoBase64, setNewProdPhotoBase64] = useState('');
+  const [newProdPreview, setNewProdPreview] = useState<string | null>(null);
+  const [submittingProduct, setSubmittingProduct] = useState(false);
+  const [productSuccessMessage, setProductSuccessMessage] = useState('');
+  const [productError, setProductError] = useState('');
+
   // Check URL path on mount or param changes
   useEffect(() => {
     const path = window.location.pathname;
     const search = window.location.search;
     const params = new URLSearchParams(search);
+
+    if (params.get('action') === 'add-product' || params.get('add') === 'true' || params.get('add-product') === 'true') {
+      setIsAddProductOpen(true);
+    }
 
     let identifier = '';
     if (path.includes('/merchant/')) {
@@ -161,6 +193,81 @@ export function VendorStorefront() {
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(inquiryText)}`, '_blank');
   };
 
+  const handleProductImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        setProductError('Image file must be under 5MB.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        setNewProdPhotoBase64(base64);
+        setNewProdPreview(base64);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleCreateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProdName.trim()) {
+      setProductError('Product name is required.');
+      return;
+    }
+    setSubmittingProduct(true);
+    setProductError('');
+    setProductSuccessMessage('');
+
+    try {
+      const payload = {
+        phone: vendorPhone || merchant?.whatsapp,
+        businessName: merchant?.businessName || 'Verified Merchant',
+        product: newProdName.trim(),
+        price: newProdPrice.trim() || '₦25,000',
+        category: newProdCategory.trim() || merchant?.category || 'General',
+        specs: newProdDesc.trim(),
+        description: newProdDesc.trim(),
+        photoBase64: newProdPhotoBase64 || undefined,
+      };
+
+      const res = await fetch('/api/catalog/product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to add product.');
+      }
+
+      if (data.product) {
+        setProducts((prev) => [data.product, ...prev]);
+      } else {
+        fetchVendorProfile(vendorPhone);
+      }
+
+      setProductSuccessMessage(`"${newProdName.trim()}" successfully added to your store!`);
+      setNewProdName('');
+      setNewProdPrice('');
+      setNewProdCategory('');
+      setNewProdDesc('');
+      setNewProdPhotoBase64('');
+      setNewProdPreview(null);
+
+      setTimeout(() => {
+        setIsAddProductOpen(false);
+        setProductSuccessMessage('');
+      }, 1500);
+    } catch (err: any) {
+      setProductError(err?.message || 'Failed to upload product.');
+    } finally {
+      setSubmittingProduct(false);
+    }
+  };
+
   const copyShareLink = () => {
     let cleanUrl = window.location.href;
     if (merchant?.businessName) {
@@ -202,6 +309,13 @@ export function VendorStorefront() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsAddProductOpen(true)}
+              className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-xs font-bold text-slate-950 transition-all flex items-center gap-1.5 shadow-sm active:scale-95"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add Product
+            </button>
             <button
               onClick={copyShareLink}
               className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-300 transition-colors flex items-center gap-1.5"
@@ -247,18 +361,23 @@ export function VendorStorefront() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3 shrink-0 w-full md:w-auto">
+            <div className="flex flex-wrap items-center gap-3 shrink-0 w-full md:w-auto">
+              <button
+                onClick={() => setIsAddProductOpen(true)}
+                className="w-full sm:w-auto px-4 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-400 font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                + Add Product
+              </button>
               <button
                 onClick={() => handleWhatsAppContact('General Storefront Inquiry')}
-                className="w-full md:w-auto px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                className="w-full sm:w-auto px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
               >
                 <MessageCircle className="w-4 h-4 fill-slate-950" />
                 Chat Vendor on WhatsApp
               </button>
             </div>
           </div>
-
-
         </div>
 
         {/* SINGLE PRODUCT DETAIL VIEW (When Viewing /catalog/:id) */}
@@ -341,6 +460,14 @@ export function VendorStorefront() {
                 </h2>
                 <p className="text-xs text-slate-400">Real-time inventory uploaded via WhatsApp by {merchant?.businessName}</p>
               </div>
+
+              <button
+                onClick={() => setIsAddProductOpen(true)}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold text-xs shadow-md transition-all flex items-center gap-1.5 active:scale-95"
+              >
+                <Plus className="w-4 h-4" />
+                Add Product
+              </button>
             </div>
 
             {loading ? (
@@ -350,18 +477,27 @@ export function VendorStorefront() {
                 ))}
               </div>
             ) : products.length === 0 ? (
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-4">
                 <Package className="w-10 h-10 text-slate-600 mx-auto" />
                 <h3 className="text-base font-bold text-slate-300">Catalogue Updating</h3>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  This merchant hasn't published products yet. You can chat them directly on WhatsApp for custom inquiries.
+                  This merchant hasn't published products yet. You can add the first item now or chat directly on WhatsApp.
                 </p>
-                <button
-                  onClick={() => handleWhatsAppContact('General Inquiry')}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold transition-all"
-                >
-                  Message Vendor
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                  <button
+                    onClick={() => setIsAddProductOpen(true)}
+                    className="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md"
+                  >
+                    <Plus className="w-4 h-4" />
+                    + Add First Product
+                  </button>
+                  <button
+                    onClick={() => handleWhatsAppContact('General Inquiry')}
+                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all"
+                  >
+                    Message Vendor
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -470,6 +606,170 @@ export function VendorStorefront() {
               <MessageCircle className="w-4 h-4" />
               Reply to Status on WhatsApp
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Add Product Modal */}
+      {isAddProductOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-6 relative shadow-2xl my-8">
+            <button
+              onClick={() => {
+                setIsAddProductOpen(false);
+                setProductError('');
+              }}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1.5 rounded-full bg-slate-800 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                <Plus className="w-4 h-4" />
+                Store Inventory Manager
+              </div>
+              <h3 className="text-xl font-bold text-white tracking-tight">Add Product to Storefront</h3>
+              <p className="text-xs text-slate-400">
+                Item will immediately appear on your web store and be matched with buyers searching on WhatsApp.
+              </p>
+            </div>
+
+            {productError && (
+              <div className="p-3.5 rounded-xl bg-rose-950/60 border border-rose-800 text-rose-300 text-xs">
+                {productError}
+              </div>
+            )}
+
+            {productSuccessMessage && (
+              <div className="p-3.5 rounded-xl bg-emerald-950/80 border border-emerald-800 text-emerald-300 text-xs flex items-center gap-2">
+                <Check className="w-4 h-4" />
+                {productSuccessMessage}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateProduct} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Product Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Nike Air Jordan 4 Retro Size 43"
+                  value={newProdName}
+                  onChange={(e) => setNewProdName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                    Price (₦) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 45,000 or ₦45,000"
+                    value={newProdPrice}
+                    onChange={(e) => setNewProdPrice(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                    Category
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Shoes, Gadgets, Fashion"
+                    value={newProdCategory}
+                    onChange={(e) => setNewProdCategory(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Description & Specs
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. Clean quality, original box included, available for delivery"
+                  value={newProdDesc}
+                  onChange={(e) => setNewProdDesc(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Product Image
+                </label>
+                <div className="bg-slate-950 border-2 border-dashed border-slate-800 rounded-2xl p-4 text-center relative overflow-hidden">
+                  {newProdPreview ? (
+                    <div className="relative aspect-video rounded-xl overflow-hidden">
+                      <img src={newProdPreview} alt="Preview" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewProdPreview(null);
+                          setNewProdPhotoBase64('');
+                        }}
+                        className="absolute top-2 right-2 p-1.5 rounded-full bg-slate-900/90 text-rose-400 text-xs font-bold"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="py-2 space-y-2">
+                      <Upload className="w-6 h-6 text-emerald-400 mx-auto" />
+                      <p className="text-xs text-slate-400">Snap with camera or choose photo from gallery</p>
+                      <label className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold text-emerald-400 cursor-pointer transition-colors">
+                        <Camera className="w-3.5 h-3.5" />
+                        Select Photo
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleProductImageUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsAddProductOpen(false)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingProduct}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold text-xs shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {submittingProduct ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                      Publishing...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      Publish to Storefront
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

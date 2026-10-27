@@ -21,6 +21,7 @@
     "googleapis": "^173.0.0",
     "grammy": "^1.45.1",
     "ioredis": "^6.0.0",
+    "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.546.0",
     "meilisearch": "^0.60.0",
     "motion": "^12.23.24",
@@ -30,13 +31,14 @@
     "vite": "^6.2.3"
   },
   "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3",
-    "@types/express": "^4.17.21"
+    "vite": "^6.2.3"
   }
 }

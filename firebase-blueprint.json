@@ -216,6 +216,25 @@
         "expiresAt": { "type": "string" }
       },
       "required": ["id", "phone", "otp", "expiresAt"]
+    },
+    "auth_sessions": {
+      "title": "WhatsApp One-Click Auth Sessions",
+      "description": "Challenge codes and JWT web sessions for passwordless WhatsApp login",
+      "type": "object",
+      "properties": {
+        "challengeCode": { "type": "string" },
+        "phone": { "type": "string" },
+        "canonicalPhone": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "VERIFIED", "EXPIRED"] },
+        "jwt": { "type": "string" },
+        "refreshToken": { "type": "string" },
+        "ip": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "expiresAt": { "type": "string" },
+        "verifiedAt": { "type": "string" },
+        "verifiedPhone": { "type": "string" }
+      },
+      "required": ["challengeCode", "phone", "status", "createdAt", "expiresAt"]
     }
   }
 }
