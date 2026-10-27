@@ -816,8 +816,22 @@ export class FirestoreService {
   public async saveMerchant(merchant: MerchantDoc): Promise<void> {
     return withExternalTimeout(
       async () => {
-        const id = merchant.id || merchant.whatsapp;
-        await setDoc(doc(db, 'merchants', id), this.sanitizeForFirestore(merchant), { merge: true });
+        const rawId = String(merchant.id || merchant.whatsapp || '').trim();
+        const variants = getAllPhoneVariants(rawId);
+        const clean10 = rawId.replace(/\D/g, '').slice(-10);
+        const canonicalId = clean10 ? `234${clean10}` : normalizePhone(rawId) || rawId;
+        const localId = clean10 ? `0${clean10}` : normalizePhone(rawId);
+
+        const cleanVariants = Array.from(new Set([canonicalId, localId, ...variants])).filter(Boolean);
+        for (const v of cleanVariants) {
+          const payload = {
+            ...merchant,
+            id: v,
+            whatsapp: v,
+            updatedAt: new Date().toISOString(),
+          };
+          await setDoc(doc(db, 'merchants', v), this.sanitizeForFirestore(payload), { merge: true });
+        }
       },
       {
         timeoutMs: 8500,
