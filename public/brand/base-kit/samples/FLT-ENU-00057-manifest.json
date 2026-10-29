@@ -1,0 +1,15 @@
+{
+  "fid": "FLT-ENU-00057",
+  "verify_url": "https://floate.xyz/v/FLT-ENU-00057",
+  "template_version": "cert-v1",
+  "content_hash": "8cc1ab8a04395817",
+  "photo_status": "fallback",
+  "photo_notes": [
+    "no photo uploaded"
+  ],
+  "files": {
+    "certificate": "FLT-ENU-00057-certificate.png",
+    "badge-card": "FLT-ENU-00057-badge-card.png",
+    "qr": "FLT-ENU-00057-qr.png"
+  }
+}

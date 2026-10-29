@@ -1,0 +1,13 @@
+{
+  "fid": "FLT-ONT-00142",
+  "verify_url": "https://floate.xyz/v/FLT-ONT-00142",
+  "template_version": "cert-v1",
+  "content_hash": "ef0c5d2bf7d93db9",
+  "photo_status": "ok",
+  "photo_notes": [],
+  "files": {
+    "certificate": "FLT-ONT-00142-certificate.png",
+    "badge-card": "FLT-ONT-00142-badge-card.png",
+    "qr": "FLT-ONT-00142-qr.png"
+  }
+}

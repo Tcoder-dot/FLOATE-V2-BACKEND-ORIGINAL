@@ -1,1 +1,63 @@
 @import "tailwindcss";
+
+@font-face {
+  font-family: 'Instrument Sans';
+  src: url('/fonts/InstrumentSans-Variable.ttf') format('truetype');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Instrument Sans';
+  src: url('/fonts/InstrumentSans-Italic-Variable.ttf') format('truetype');
+  font-weight: 400 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Instrument Serif';
+  src: url('/fonts/InstrumentSerif-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Instrument Serif';
+  src: url('/fonts/InstrumentSerif-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root {
+  /* Floate Brand Colors */
+  --fl-green: #1B5E20;
+  --fl-yellow: #FFC107;
+  --fl-green-900: #0E3B12;
+  --fl-green-800: #145018;
+  --fl-green-700: #1B5E20;
+  --fl-green-600: #2E7D32;
+  
+  /* Neutrals */
+  --fl-paper: #FFFDF5;
+  --fl-chip: #FFF4CC;
+  --fl-ink: #10200F;
+  --fl-text-2: #2F3B2F;
+  --fl-text-3: #4F5E4F;
+  --fl-muted: #6B7A6B;
+  --fl-on-green: #E3F1E4;
+  --fl-white: #FFFFFF;
+
+  /* Typography */
+  --fl-font-sans: 'Instrument Sans', system-ui, -apple-system, sans-serif;
+  --fl-font-serif: 'Instrument Serif', Georgia, serif;
+}
+
+.font-serif-italic {
+  font-family: var(--fl-font-serif);
+  font-style: italic;
+  font-weight: 400;
+}

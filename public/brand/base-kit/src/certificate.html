@@ -1,0 +1,72 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../tokens/tokens.css">
+<style>
+/* 1080x1920 Verified certificate. Fields: name, biz, loc, date, fid, link, qr (data URI), chips ("A|B|C"), tier. ?blank=1 = base template. */
+#c{width:1080px;height:1920px;position:relative;overflow:hidden;background:var(--fl-green-900)}
+.bg{position:absolute;inset:0;background:var(--fl-field-status)}
+.card{position:absolute;left:70px;right:70px;top:250px;bottom:250px;background:var(--fl-paper);border-radius:var(--fl-r-card);padding:70px 70px 60px;display:flex;flex-direction:column;align-items:center;text-align:center;box-shadow:var(--fl-shadow-card)}
+.card:before{content:'';position:absolute;inset:18px;border:3px solid var(--fl-yellow);border-radius:24px;pointer-events:none}
+.card:after{content:'';position:absolute;inset:28px;border:1.5px solid rgba(27,94,32,.25);border-radius:18px;pointer-events:none}
+.top{position:absolute;top:95px;left:0;right:0;display:flex;justify-content:center}
+.top img{height:78px}
+.avatar{width:300px;height:300px;margin-top:-20px;--ring:9px;--gap:6px;--mini:120px;--mo:-10px;--ini:110px}
+.avatar{position:relative;flex:none}
+.avatar .ring{width:100%;height:100%;border-radius:50%;padding:var(--ring);background:conic-gradient(from 200deg,#FFC107,#FFE082,#FFC107,#C79100,#FFC107);box-shadow:0 14px 34px rgba(14,59,18,.35)}
+.avatar .ph{width:100%;height:100%;border-radius:50%;overflow:hidden;border:var(--gap) solid var(--fl-paper);background:radial-gradient(circle at 35% 30%,#2E7D32,#1B5E20 45%,#0E3B12);display:flex;align-items:center;justify-content:center;position:relative}
+.avatar .ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.avatar .ph span{color:var(--fl-yellow);font-weight:700;letter-spacing:2px;font-size:var(--ini)}
+.avatar .mini{position:absolute;right:var(--mo);bottom:var(--mo);width:var(--mini);height:var(--mini);filter:drop-shadow(0 6px 10px rgba(0,0,0,.35))}
+.avatar.has-photo .ph span{display:none}
+body.blank .avatar .ph span{display:none}
+
+.kicker{margin-top:20px;font-size:28px;letter-spacing:9px;font-weight:600;color:var(--fl-green)}
+h1{font-size:96px;line-height:1;margin-top:14px;color:var(--fl-green-900)}
+.certify{margin-top:36px;font-size:30px;color:var(--fl-text-3)}
+.name{margin-top:16px;font-size:76px;font-weight:700;color:var(--fl-ink);line-height:1.05;max-width:820px;min-height:80px}
+.name.long{font-size:60px}
+.rule{width:520px;height:3px;background:var(--fl-gold-rule);margin:24px 0}
+.biz{font-size:36px;color:var(--fl-green);font-weight:600;min-height:44px}
+.loc{margin-top:10px;font-size:30px;color:var(--fl-text-3);min-height:36px}
+.text{margin-top:30px;font-size:29px;line-height:1.45;color:var(--fl-text-2);max-width:800px}
+.chips{margin-top:30px;display:flex;gap:14px;flex-wrap:wrap;justify-content:center;min-height:50px}
+.chips span{background:var(--fl-chip);color:var(--fl-green-600);font-weight:600;font-size:24px;padding:12px 22px;border-radius:var(--fl-r-chip)}
+.meta{margin-top:auto;width:100%;display:flex;justify-content:space-between;align-items:flex-end;border-top:2px dashed rgba(27,94,32,.25);padding-top:26px}
+.meta .m{text-align:left;font-size:22px;letter-spacing:3px;color:var(--fl-muted);font-weight:600;min-width:250px}
+.meta .m b{display:block;margin-top:8px;font-size:32px;letter-spacing:1px;color:var(--fl-ink);min-height:40px}
+.meta .m.r{text-align:right}
+.qr{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:16px;letter-spacing:2px;font-weight:700;color:var(--fl-green-900)}
+.qr .box{width:150px;height:150px;background:#fff;border:3px solid var(--fl-green-900);border-radius:14px;padding:8px}
+.qr img{width:100%;height:100%;image-rendering:pixelated;display:block}
+.foot{position:absolute;bottom:110px;left:0;right:0;text-align:center;color:var(--fl-yellow);font-size:34px;font-weight:600}
+.foot span{color:#fff;opacity:.85;font-weight:500;display:block;font-size:28px;margin-top:10px;min-height:34px}
+body.blank .chips span{display:none}
+</style></head><body><div id="c">
+<div class="bg"></div>
+<div class="top"><img src="../layers/wordmark-yellow.png"></div>
+<div class="card">
+ <div class="avatar" id="avatar"><div class="ring"><div class="ph"><img data-img="photo" alt=""><span data-f="initials">CO</span></div></div><img class="mini" src="../layers/seal-verified-256.png"></div>
+ <div class="kicker" id="kicker">CERTIFICATE OF VERIFICATION</div>
+ <h1 class="serif">Verified <i>Merchant</i></h1>
+ <div class="certify">This certifies that</div>
+ <div class="name" id="name" data-f="name">Chidinma Okafor</div>
+ <div class="rule"></div>
+ <div class="biz" data-f="biz">Chidi Fabrics &amp; Lace</div>
+ <div class="loc" data-f="loc">Onitsha Main Market, Anambra</div>
+ <div class="text">has been verified by FLOATE as a real seller with a real stall. Buyers can trust this merchant and chat directly on WhatsApp.</div>
+ <div class="chips" id="chips"><span>✓ Real stall</span><span>✓ Contact confirmed</span><span>✓ Chat on WhatsApp</span></div>
+ <div class="meta">
+  <div class="m">VERIFIED ON<b data-f="date">27 Oct 2026</b></div>
+  <div class="qr"><div class="box"><img data-img="qr" src="../layers/qr-placeholder.png"></div>SCAN TO VERIFY</div>
+  <div class="m r">FLOATE ID<b data-f="fid">FLT-ONT-00142</b></div>
+ </div>
+</div>
+<div class="foot">Find me on FLOATE ✦ floate.xyz<span data-f="link">floate.xyz/m/chidi-fabrics</span></div>
+</div>
+<script>
+const P=new URLSearchParams(location.search);
+if(P.get('chips')&&P.get('blank')!=='1'){document.getElementById('chips').innerHTML=P.get('chips').split('|').map(s=>`<span>✓ ${s.replace(/[<>&]/g,'')}</span>`).join('');}
+if(P.get('tier')==='plus'&&P.get('blank')!=='1'){document.getElementById('kicker').textContent='VERIFIED PLUS ✦ CERTIFICATE';}
+</script>
+<script src="fill.js"></script><script>(function(){const p=new URLSearchParams(location.search),a=document.getElementById('avatar'),i=a.querySelector('img[data-img=photo]');
+if(p.get('photo')&&p.get('blank')!=='1'){a.classList.add('has-photo');}else{i.style.display='none';}})();</script>
+<script>const n=document.getElementById('name'); if(n.textContent.length>22) n.classList.add('long');</script>
+</body></html>

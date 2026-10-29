@@ -1,0 +1,30 @@
+/* Floate design tokens v1.0.0 (2026-10-27). Mirrors design-tokens.json. Self-hosted fonts. */
+@font-face{font-family:'Instrument Sans';src:url('../fonts/InstrumentSans-Variable.ttf') format('truetype');font-weight:400 700;font-style:normal;font-display:block}
+@font-face{font-family:'Instrument Sans';src:url('../fonts/InstrumentSans-Italic-Variable.ttf') format('truetype');font-weight:400 700;font-style:italic;font-display:block}
+@font-face{font-family:'Instrument Serif';src:url('../fonts/InstrumentSerif-Regular.ttf') format('truetype');font-weight:400;font-style:normal;font-display:block}
+@font-face{font-family:'Instrument Serif';src:url('../fonts/InstrumentSerif-Italic.ttf') format('truetype');font-weight:400;font-style:italic;font-display:block}
+:root{
+  /* brand */
+  --fl-green:#1B5E20; --fl-yellow:#FFC107;
+  --fl-green-900:#0E3B12; --fl-green-800:#145018; --fl-green-700:#1B5E20; --fl-green-600:#2E7D32;
+  /* neutrals */
+  --fl-paper:#FFFDF5; --fl-chip:#FFF4CC; --fl-ink:#10200F; --fl-text-2:#2F3B2F; --fl-text-3:#4F5E4F;
+  --fl-muted:#6B7A6B; --fl-on-green:#E3F1E4; --fl-white:#FFFFFF;
+  /* gradients */
+  --fl-field-status:radial-gradient(1200px 900px at 50% -10%,#2E7D32 0%,#1B5E20 40%,#0E3B12 85%);
+  --fl-field-square:radial-gradient(1000px 800px at 85% 10%,#2E7D32 0%,#1B5E20 40%,#0E3B12 90%);
+  --fl-field-flyer:radial-gradient(900px 700px at 20% 0%,#2E7D32 0%,#1B5E20 45%,#0E3B12 100%);
+  --fl-gold-rule:linear-gradient(90deg,transparent,#FFC107,transparent);
+  /* type */
+  --fl-font-sans:'Instrument Sans',system-ui,sans-serif; --fl-font-serif:'Instrument Serif',Georgia,serif;
+  /* radius / shadow */
+  --fl-r-chip:40px; --fl-r-button:22px; --fl-r-panel:28px; --fl-r-card:36px;
+  --fl-shadow-card:0 30px 80px rgba(0,0,0,.35); --fl-shadow-panel:0 12px 30px rgba(14,59,18,.15);
+  /* legacy aliases (design-handoff/src) */
+  --purple:var(--fl-green); --deep:var(--fl-green-900); --violet:var(--fl-green-600); --gold:var(--fl-yellow);
+  --yellow:var(--fl-yellow); --ink:var(--fl-ink); --paper:var(--fl-paper); --lilac:var(--fl-chip); --wa:var(--fl-green);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{background:transparent}
+body{font-family:var(--fl-font-sans);color:var(--fl-ink);-webkit-font-smoothing:antialiased}
+.serif{font-family:var(--fl-font-serif);font-weight:400}

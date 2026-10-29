@@ -61,6 +61,8 @@ export interface BusinessListing {
   verificationMediaUrl?: string;
   productImages?: string[];
   identityVerified?: boolean;
+  isVerifiedPlus?: boolean;
+  isBoosted?: boolean;
 }
 
 /**
@@ -1813,7 +1815,7 @@ class SheetsDatabaseService {
 
       // Location match check with Multi-Tier Proximity & Nigerian Cluster Mapping
       let matchesLocation = true;
-      if (locFilter) {
+      if (locFilter && locFilter !== 'nigeria' && locFilter !== 'all_nigeria' && locFilter !== 'all') {
         const stateLower = (b.state || '').toLowerCase().trim();
         const cityLower = (b.city || '').toLowerCase().trim();
         const combinedLoc = `${cityLower} ${stateLower}`.trim();
@@ -1909,7 +1911,7 @@ class SheetsDatabaseService {
 
     // Primary matches: Strictly matching the requested location when locFilter is provided, with verified product relevance
     const localScoredListings = scoredListings
-      .filter((item) => (locFilter ? item.matchesLocation : true) && item.totalScore > 0 && (!cleanQ || item.productScore > 0 || item.isExactProductMatch));
+      .filter((item) => (locFilter && locFilter !== 'nigeria' && locFilter !== 'all_nigeria' && locFilter !== 'all' ? item.matchesLocation : true) && item.totalScore > 0 && (!cleanQ || item.productScore > 0 || item.isExactProductMatch));
     localScoredListings.sort((a, b) => b.totalScore - a.totalScore);
 
     const exactMatches = localScoredListings
@@ -1922,7 +1924,7 @@ class SheetsDatabaseService {
 
     // Out-of-area recommendations: When location filter is active, find relevant merchants from other states/markets
     let outOfAreaRecommendations: BusinessListing[] = [];
-    if (locFilter) {
+    if (locFilter && locFilter !== 'nigeria' && locFilter !== 'all_nigeria' && locFilter !== 'all') {
       const outOfAreaScored = scoredListings
         .filter((item) => !item.matchesLocation && (item.isExactProductMatch || (item.productScore > 0 && item.totalScore > -100)));
 

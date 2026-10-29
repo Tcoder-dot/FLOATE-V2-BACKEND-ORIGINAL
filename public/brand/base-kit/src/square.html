@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../tokens/tokens.css">
+<style>
+/* 1080x1080 square for Instagram feed + WhatsApp status. Swap #tag, #headline, #body, #cta, #photo via URL params. */
+#c{width:1080px;height:1080px;position:relative;overflow:hidden;background:var(--deep)}
+.bg{position:absolute;inset:0;background:radial-gradient(1000px 800px at 85% 10%,#2E7D32 0%,var(--purple) 40%,var(--deep) 90%)}
+.ghost{position:absolute;right:-60px;bottom:140px;width:560px;opacity:.07}
+.brand{position:absolute;top:64px;left:72px;display:flex;align-items:center;gap:16px;color:var(--gold);font-weight:700;font-size:40px;letter-spacing:7px}
+.brand img{height:60px}
+.tag{position:absolute;top:70px;right:72px;background:var(--gold);color:var(--deep);font-weight:700;font-size:24px;letter-spacing:3px;padding:12px 24px;border-radius:40px}
+.photo{position:absolute;top:190px;right:72px;width:400px;height:520px;border-radius:32px;background:#145018;border:3px dashed rgba(255,193,7,.6);display:flex;align-items:center;justify-content:center;text-align:center;color:var(--gold);font-size:24px;font-weight:600;letter-spacing:2px;overflow:hidden;background-size:cover;background-position:center}
+h1{position:absolute;top:200px;left:72px;width:520px;color:#fff;font-size:88px;line-height:1;font-weight:700;letter-spacing:-2px}
+h1 em{font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;color:var(--gold);letter-spacing:0}
+.body{position:absolute;top:600px;left:72px;width:500px;color:#E3F1E4;font-size:30px;line-height:1.4}
+.bar{position:absolute;left:0;right:0;bottom:0;height:200px;background:var(--paper);display:flex;align-items:center;padding:0 72px;gap:28px}
+.cta{background:var(--wa);color:var(--gold);font-weight:700;font-size:34px;padding:22px 34px;border-radius:22px;display:flex;align-items:center;gap:14px;white-space:nowrap}
+.cta svg{width:44px;height:44px}
+.url{font-size:28px;color:var(--deep);font-weight:600;line-height:1.3}
+.url span{display:block;color:#6B7A6B;font-size:22px;font-weight:500}
+</style></head><body><div id="c">
+<div class="bg"></div>
+<img class="ghost" src="../layers/icon-yellow.png">
+<div class="brand"><img src="../layers/wordmark-yellow.png"></div>
+<div class="tag" id="tag" data-f="tag">WETIN YOU DEY FIND?</div>
+<div class="photo" id="photo">PRODUCT OR<br>MERCHANT PHOTO<br>400 × 520</div>
+<h1 id="headline" data-f="headline" data-html>Skip the traffic. <em>Find it</em> on WhatsApp.</h1>
+<div class="body" id="body" data-f="body">Verified sellers in Onitsha, Enugu and Owerri. Tell Floate what you need.</div>
+<div class="bar">
+ <div class="cta" id="cta"><svg viewBox="0 0 24 24" fill="#FFC107"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .2-3.3-.7-2.8-1.1-4.5-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.8s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.6-.4.4c-.1.2-.3.3-.1.6.2.3.8 1.4 1.8 2.2 1.2 1.1 2.2 1.4 2.5 1.6.3.1.5.1.6-.1l.9-1c.2-.3.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.7-.1 1.3z"/></svg>Chat Floate</div>
+ <div class="url">floate.xyz<span>+234 911 516 2081</span></div>
+</div>
+</div>
+<style>body.blank .tag{display:none}</style><script src="fill.js"></script></body></html>

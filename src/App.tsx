@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bot, Terminal, Code2, Globe, Store, ExternalLink, Sparkles, ShieldCheck, MapPin, ShoppingBag, Zap } from 'lucide-react';
+import { Bot, Terminal, Code2, Globe, Store, ExternalLink, Sparkles, ShieldCheck, MapPin, ShoppingBag, Zap, Award } from 'lucide-react';
 import { BotTester } from './components/BotTester';
 import { ApiDocs } from './components/ApiDocs';
 import { WebSearchDemo } from './components/WebSearchDemo';
@@ -12,16 +12,35 @@ import { FrontendHandshakeHub } from './components/FrontendHandshakeHub';
 import { StorefrontRegistration } from './components/StorefrontRegistration';
 import { WhatsAppOneClickAuthModal } from './components/WhatsAppOneClickAuthModal';
 import { SponsorProductPortal } from './components/SponsorProductPortal';
+import { LaunchMonetizationHub } from './components/LaunchMonetizationHub';
+import { FloateBaseKitStudio } from './components/credentials/FloateBaseKitStudio';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'admin' | 'handshake' | 'engine' | 'storefront' | 'register' | 'sponsor' | 'verify' | 'search' | 'tester' | 'assets' | 'docs'>('admin');
+  const [activeTab, setActiveTab] = useState<'basekit' | 'pricing' | 'admin' | 'handshake' | 'engine' | 'storefront' | 'register' | 'sponsor' | 'verify' | 'search' | 'tester' | 'assets' | 'docs'>('basekit');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  // Check URL parameters / path to auto-route to Register, Storefront, Handshake, Sponsor or Live Verification
+  // Check URL parameters / path to auto-route
   useEffect(() => {
     const path = window.location.pathname;
     const search = window.location.search;
     if (
+      path.includes('/base-kit') ||
+      path.includes('/brand') ||
+      path.includes('/credentials') ||
+      path.startsWith('/v/') ||
+      search.includes('verify=') ||
+      search.includes('kit=')
+    ) {
+      setActiveTab('basekit');
+    } else if (
+      path.includes('/pricing') ||
+      path.includes('/certificate') ||
+      path.includes('/launch') ||
+      search.includes('pricing=') ||
+      search.includes('action=pricing')
+    ) {
+      setActiveTab('pricing');
+    } else if (
       path.includes('/sponsor') ||
       path.includes('/ads') ||
       search.includes('sponsor=') ||
@@ -49,7 +68,7 @@ export default function App() {
       search.includes('merchant=')
     ) {
       setActiveTab('storefront');
-    } else if (path.includes('/verify') || search.includes('phone=') || search.includes('verify=')) {
+    } else if (path.includes('/verify') || search.includes('phone=')) {
       setActiveTab('verify');
     } else if (path.includes('/engine') || search.includes('engine=true')) {
       setActiveTab('engine');
@@ -79,6 +98,28 @@ export default function App() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+            <button
+              onClick={() => setActiveTab('basekit')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeTab === 'basekit'
+                  ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 text-emerald-950 shadow-md font-black ring-2 ring-amber-300'
+                  : 'text-amber-300 hover:text-amber-200 hover:bg-emerald-950/40 border border-amber-500/50'
+              }`}
+            >
+              <Award className="w-3.5 h-3.5" />
+              Floate Base Kit v2 (Designs)
+            </button>
+            <button
+              onClick={() => setActiveTab('pricing')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeTab === 'pricing'
+                  ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-slate-950 shadow-md font-black ring-2 ring-amber-400/50'
+                  : 'text-amber-300 hover:text-amber-200 hover:bg-amber-950/40 border border-amber-500/40'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Flutterwave Pricing (Nov 20)
+            </button>
             <button
               onClick={() => setActiveTab('admin')}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
@@ -212,6 +253,8 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {activeTab === 'basekit' && <FloateBaseKitStudio />}
+        {activeTab === 'pricing' && <LaunchMonetizationHub />}
         {activeTab === 'admin' && <AdminDashboard />}
         {activeTab === 'handshake' && <FrontendHandshakeHub />}
         {activeTab === 'engine' && <RecommendationEngineStudio />}

@@ -61,6 +61,9 @@ import { submitVendorReport, alertAdminNewVendorRegistration } from './whatsappA
 import { monnifyService } from './monnifyService.js';
 import { flutterwaveService, FLOATE_CREDIT_PACKAGES, calculateCustomCredits, resolveNigerianBankCode } from './flutterwaveService.js';
 import { getDeployedFlowIds, handleFlowSubmission } from './whatsappFlowService.js';
+import { resolveCredential } from './credentialAssetRenderer.js';
+import { createCredentialForMerchant } from './credentialService.js';
+import { monetizationService } from './monetizationService.js';
 
 export function parseNumericAmount(priceStr?: string): number {
   if (!priceStr) return 5000;
@@ -120,6 +123,12 @@ export interface SendWhatsAppOptions {
     url?: string;
     caption?: string;
   };
+  document?: {
+    id?: string;
+    url?: string;
+    filename?: string;
+    caption?: string;
+  };
   audio?: {
     id?: string;
     url?: string;
@@ -155,7 +164,7 @@ export function getAppBaseUrl(): string {
   if (currentPublicBaseUrl && currentPublicBaseUrl.startsWith('http')) {
     return currentPublicBaseUrl;
   }
-  return 'https://ais-dev-doffhubcs26lvvc5toaulh-156196353029.europe-west2.run.app';
+  return 'https://ais-dev-x4au4kqaq2sjd2khsnimym-30407813593.europe-west2.run.app';
 }
 
 export function getFrontendWebUrl(): string {
@@ -275,6 +284,64 @@ export function toAbsoluteMediaUrl(url?: string): string | undefined {
   }
   const base = getAppBaseUrl();
   return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
+export async function sendMerchantVisualAssetsToWhatsApp(
+  toPhone: string,
+  merchantName?: string,
+  storeName?: string,
+  location?: string
+) {
+  try {
+    const cleanPhone = toPhone.replace(/\D/g, '');
+    const merchant = await firestoreDb.getMerchant(cleanPhone);
+    const finalBizName = storeName || merchant?.businessName || 'Verified Merchant';
+    const finalOwnerName = merchantName || merchant?.ownerFullName || finalBizName;
+    const finalLocation = location || [merchant?.city, merchant?.state].filter(Boolean).join(', ') || 'Nigeria';
+
+    const credential = createCredentialForMerchant({
+      merchantId: cleanPhone,
+      name: finalOwnerName,
+      biz: finalBizName,
+      loc: finalLocation,
+      phone: cleanPhone,
+      isPlus: true,
+    });
+
+    const baseUrl = getAppBaseUrl();
+    const badgeImgUrl = `${baseUrl}/api/credentials/${credential.fid}/download/badge`;
+    const certImgUrl = `${baseUrl}/api/credentials/${credential.fid}/download/certificate`;
+    const flyerImgUrl = `${baseUrl}/api/credentials/${credential.fid}/download/flyer`;
+
+    console.log(`[Auto WhatsApp Asset Push] 🎨 Pushing visual posters directly to +${cleanPhone} (${credential.fid})`);
+
+    // 1. Badge Card Image
+    await sendWhatsAppMessage(cleanPhone, '', {
+      image: {
+        url: badgeImgUrl,
+        caption: `🛡️ *${finalBizName}* — Official Verified Store Badge Card\nFID: *${credential.fid}*\n\n📲 Post this picture on your WhatsApp Status & social media to show customers your store is verified!`,
+      },
+    }).catch((e) => console.warn('[Auto Badge Push Error]:', e));
+
+    // 2. Official Certificate
+    await sendWhatsAppMessage(cleanPhone, '', {
+      document: {
+        url: certImgUrl,
+        filename: `Floate-Verified-Certificate-${credential.fid}.png`,
+        caption: `📜 *Official Certificate of Verification & Trust* (${credential.fid})`,
+      },
+    }).catch((e) => console.warn('[Auto Cert Push Error]:', e));
+
+    // 3. A5 Market Stall Poster / Flyer
+    await sendWhatsAppMessage(cleanPhone, '', {
+      image: {
+        url: flyerImgUrl,
+        caption: `🏷️ *${finalBizName}* — Official A5 Market Stall Poster\n\n🖨️ Print and laminate this poster for your physical shop or stall!`,
+      },
+    }).catch((e) => console.warn('[Auto Flyer Push Error]:', e));
+  } catch (err) {
+    console.error('[sendMerchantVisualAssetsToWhatsApp Error]:', err);
+  }
 }
 
 export function addWhatsAppOutgoingListener(listener: WhatsAppOutgoingListener) {
@@ -547,7 +614,23 @@ export async function sendWhatsAppMessage(
       },
     };
   }
-  // 5b. Audio / Voice Note Message (Voice note relay)
+  // 5b. Document Message (High-res uncompressed PNG, PDF, or credential file)
+  else if (options?.document) {
+    const absDocUrl = toAbsoluteMediaUrl(options.document.url);
+    const captionText = options.document.caption || messageText;
+    payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: cleanTo,
+      type: 'document',
+      document: {
+        ...(options.document.id ? { id: options.document.id } : { link: absDocUrl }),
+        ...(options.document.filename ? { filename: options.document.filename } : {}),
+        ...(captionText ? { caption: captionText.substring(0, 1020) } : {}),
+      },
+    };
+  }
+  // 5c. Audio / Voice Note Message (Voice note relay)
   else if (options?.audio) {
     const absAudioUrl = toAbsoluteMediaUrl(options.audio.url);
     payload = {
@@ -1065,7 +1148,7 @@ export async function handleWhatsAppWebhook(req: express.Request, res: express.R
             await sendWhatsAppMessage(
               senderPhone,
               `🏪 *Open Your Free Stall on FLOATE:*\n\n` +
-              `Tap the link below to register your business in 60 seconds and claim **5 free customer credits**:\n` +
+              `Tap the link below to register your business in 60 seconds and unlock your verified physical stall credentials:\n` +
               `👉 https://www.floate.xyz/register`
             );
             continue;
@@ -4395,6 +4478,94 @@ export async function processMasterWhatsAppEngine(params: {
   }
 
   // -------------------------------------------------------------
+  // STEP 1.85: MERCHANT CREDENTIALS & BRAND KIT ASSETS INTERCEPTOR
+  // Allows merchants to download and receive their 1080p Badge Card,
+  // Certificate, Market Flyer, and Official Seal directly on WhatsApp!
+  // -------------------------------------------------------------
+  const isCredentialRequest =
+    text === 'btn_download_badge' ||
+    text === 'btn_download_cert' ||
+    text === 'btn_download_kit' ||
+    text === 'btn_vendor_credentials' ||
+    text.startsWith('btn_cred_') ||
+    /^(?:my\s+)?(?:badge|certificate|credentials|brand\s*kit|verification\s*badge|verified\s*badge|official\s*seal|download\s*badge|download\s*certificate|download\s*kit|get\s*badge|get\s*certificate|my\s+seal|my\s+flyer|market\s*flyer)$/i.test(cleanLower) ||
+    /^(?:send|show|give|view|download)\s+(?:me\s+)?(?:my\s+)?(?:badge|certificate|credentials|kit|seal)$/i.test(cleanLower);
+
+  if (isCredentialRequest) {
+    await firestoreDb.recordFirstContact(cleanPhone, senderName);
+    const cred = await resolveCredential(cleanPhone);
+    const baseUrl = getAppBaseUrl();
+
+    if (!cred) {
+      await sendWhatsAppMessage(
+        cleanPhone,
+        `⚠️ *No Verification Record Found Yet*\n\n` +
+        `We could not find an active verification badge for +${cleanPhone}.\n` +
+        `Register your store or upgrade to *Floate Verified Plus* to get your official 1080p Badge Card, Certificate, and Market Flyer! 🛡️`,
+        {
+          quickReplies: [
+            { id: 'btn_vendor_register', title: '🏪 Register Store' },
+            { id: 'btn_for_businesses', title: '💼 Business Hub' },
+            { id: 'btn_home', title: '🏠 Main Menu' },
+          ],
+        }
+      );
+      return;
+    }
+
+    const badgeUrl = `${baseUrl}/api/credentials/${cred.fid}/download/badge`;
+    const certUrl = `${baseUrl}/api/credentials/${cred.fid}/download/certificate`;
+    const flyerUrl = `${baseUrl}/api/credentials/${cred.fid}/download/flyer`;
+    const squareUrl = `${baseUrl}/api/credentials/${cred.fid}/download/square`;
+    const sealUrl = `${baseUrl}/brand/base-kit/layers/seal-verified-1080.png`;
+    const publicProfileUrl = `https://floate.xyz/v/${cred.fid}`;
+
+    // 1. Send High-Res Badge Card Image directly into chat
+    await sendWhatsAppMessage(cleanPhone, '', {
+      image: {
+        url: badgeUrl,
+        caption: `🛡️ Floate Verified Badge Card (${cred.fid})\n${cred.biz} • ${cred.loc}`,
+      },
+    }).catch((e) => console.warn('[WhatsApp Badge Send Warning]:', e));
+
+    // 2. Send Master Certificate as Document (uncompressed master asset)
+    await sendWhatsAppMessage(cleanPhone, '', {
+      document: {
+        url: certUrl,
+        filename: `Floate-Certificate-${cred.fid}.png`,
+        caption: `📜 Official Verified Merchant Certificate (${cred.fid})`,
+      },
+    }).catch((e) => console.warn('[WhatsApp Certificate Send Warning]:', e));
+
+    // 3. Companion Details & Download Links Message
+    const kitMessage =
+      `🎉 *Floate Verification Assets Ready!* 🛡️\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🏪 *Business:* ${cred.biz}\n` +
+      `👤 *Merchant:* ${cred.name}\n` +
+      `📍 *Location:* ${cred.loc}\n` +
+      `🔖 *Floate ID:* \`${cred.fid}\`\n` +
+      `⭐ *Tier:* ${cred.tier === 'plus' ? 'VERIFIED PLUS' : 'VERIFIED MERCHANT'}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `📲 *Direct One-Tap Download Links (Works in WhatsApp):*\n\n` +
+      `• 🛡️ *1080p Badge Card (Square):*\n${badgeUrl}\n\n` +
+      `• 📜 *Full 1080×1920 Certificate:*\n${certUrl}\n\n` +
+      `• 🏷️ *A5 Market Flyer (Print Ready):*\n${flyerUrl}\n\n` +
+      `• 📱 *Square Product Boost Template:*\n${squareUrl}\n\n` +
+      `• 🟢 *Official Scalloped Seal (Master 1080px):*\n${sealUrl}\n\n` +
+      `🌐 *Public Trust & Verification Page:*\n${publicProfileUrl}\n\n` +
+      `_Post these assets on your WhatsApp Status and Instagram to build instant trust with buyers!_`;
+
+    await sendWhatsAppMessage(cleanPhone, kitMessage, {
+      quickReplies: [
+        { id: 'btn_for_businesses', title: '🏪 Store Menu' },
+        { id: 'btn_home', title: '🏠 Main Menu' },
+      ],
+    });
+    return;
+  }
+
+  // -------------------------------------------------------------
   // INBOUND REFERRAL LINK DETECTION (e.g. text contains ref_ or REF-)
   // -------------------------------------------------------------
   const refCodeMatch = text.match(/\b(?:ref_|REF-)([A-Za-z0-9\-_+]+)\b/i) || text.match(/^ref_([A-Za-z0-9\-_+]+)$/i);
@@ -5857,6 +6028,134 @@ export async function processMasterWhatsAppEngine(params: {
     return;
   }
 
+  // Vendor Boost a Product
+  if (
+    text === 'btn_boost_product' ||
+    text === 'btn_sponsor_product' ||
+    text === 'btn_promote_product' ||
+    /^(?:boost(?:\s+a)?\s+product|boost\s+item|boost\s+products|product\s+boost|boost\s+my\s+product)$/i.test(cleanLower)
+  ) {
+    await handleVendorBoostProduct(cleanPhone, senderName);
+    return;
+  }
+
+  // Vendor Upgrade to Verified Plus
+  if (
+    text === 'btn_upgrade_verified_plus' ||
+    text === 'btn_pricing_verified_plus' ||
+    text === 'btn_pay_verified_plus' ||
+    /^(?:upgrade\s+to\s+verified\s+plus|verified\s+plus|verified\s+plus\s+upgrade|upgrade\s+store)$/i.test(cleanLower)
+  ) {
+    await handleVendorVerifiedPlusUpgrade(cleanPhone, senderName);
+    return;
+  }
+
+  // Vendor My Web Storefront
+  if (
+    text === 'btn_my_store' ||
+    /^(?:view\s+web\s+storefront|view\s+storefront|my\s+storefront|my\s+web\s+store|my\s+store\s+link|store\s+link)$/i.test(cleanLower)
+  ) {
+    await handleVendorMyStore(cleanPhone, senderName);
+    return;
+  }
+
+  // Get Store Posters / Badges / Certificate Assets
+  if (
+    text === 'btn_download_badge' ||
+    text === 'btn_get_assets' ||
+    text === 'btn_get_badge' ||
+    /^(?:get|download|my)\s+(?:badge|badges|poster|posters|flyer|flyers|certificate|certificates|assets|branding)$/i.test(cleanLower) ||
+    /^(?:badge|poster|flyer|certificate|assets)$/i.test(cleanLower)
+  ) {
+    await sendWhatsAppMessage(cleanPhone, `🎨 *Sending your official store visual posters & certificate...*`);
+    await sendMerchantVisualAssetsToWhatsApp(cleanPhone, senderName);
+    return;
+  }
+
+  // Buy Single Boost (₦1,000)
+  if (text === 'btn_boost_buy_single') {
+    const checkout = await monetizationService.initiateTierCheckout({
+      merchantPhone: cleanPhone,
+      packageId: 'PRODUCT_BOOST_SINGLE',
+      customerName: senderName,
+    }).catch(() => null);
+    if (checkout?.checkoutUrl) {
+      await sendWhatsAppMessage(
+        cleanPhone,
+        `💳 *1-Week Product Boost (₦1,000)* 🚀\n\n` +
+        `Tap the secure link below to activate your 7-day category top placement:\n${checkout.checkoutUrl}\n\n` +
+        `_Once payment is completed, your boost is activated immediately!_`,
+        {
+          quickReplies: [
+            { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
+            { id: 'btn_vendor_stats', title: '📊 My Stats' },
+          ],
+        }
+      );
+    }
+    return;
+  }
+
+  // Buy 5-Boost Bundle (₦4,000)
+  if (text === 'btn_boost_buy_bundle') {
+    const checkout = await monetizationService.initiateTierCheckout({
+      merchantPhone: cleanPhone,
+      packageId: 'PRODUCT_BOOST_BUNDLE_5',
+      customerName: senderName,
+    }).catch(() => null);
+    if (checkout?.checkoutUrl) {
+      await sendWhatsAppMessage(
+        cleanPhone,
+        `⚡ *5-Boost Bundle Pack (₦4,000 - Save ₦1,000!)* 🚀\n\n` +
+        `Tap the secure link below to purchase your 5 boosts:\n${checkout.checkoutUrl}\n\n` +
+        `_Boosts never expire and can be applied to any products in your catalog!_`,
+        {
+          quickReplies: [
+            { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
+            { id: 'btn_vendor_stats', title: '📊 My Stats' },
+          ],
+        }
+      );
+    }
+    return;
+  }
+
+  // Activate boost on a specific product from available boost credits
+  if (text.startsWith('btn_activate_boost_')) {
+    const targetId = text.replace('btn_activate_boost_', '').trim();
+    const merchant = await firestoreDb.getMerchant(cleanPhone);
+    const curBoosts = typeof (merchant as any)?.boostCredits === 'number' ? (merchant as any).boostCredits : 0;
+    if (curBoosts > 0) {
+      const products = await firestoreDb.getProductsByMerchant(cleanPhone);
+      const targetProduct = products.find((p) => p.id === targetId) || products[parseInt(targetId, 10)] || products[0];
+      if (targetProduct) {
+        const oneWeekLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        await firestoreDb.updateProduct(targetProduct.id, {
+          isBoosted: true,
+          boostedUntil: oneWeekLater,
+        } as any);
+        await firestoreDb.saveMerchant({
+          ...merchant,
+          boostCredits: Math.max(0, curBoosts - 1),
+          updatedAt: new Date().toISOString(),
+        });
+        await sendWhatsAppMessage(
+          cleanPhone,
+          `🚀 *Product Boost Activated!* ⚡\n\n` +
+          `*${targetProduct.product}* is now boosted and pinned to top search results for 7 days.\n` +
+          `Remaining Boost Credits: *${curBoosts - 1}*`,
+          {
+            quickReplies: [
+              { id: 'btn_vendor_stats', title: '📊 View Stats' },
+              { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
+            ],
+          }
+        );
+        return;
+      }
+    }
+  }
+
   // Vendor Sponsor / Promote Products
   if (
     text === 'btn_vendor_sponsor' ||
@@ -6637,7 +6936,7 @@ async function handleComprehensiveFaq(
       `   • 🏬 *Physical Stall:* For shops in commercial market hubs (Balogun, Computer Village, Onitsha, Wuse, Alaba, etc.). Shop address is recommended.\n` +
       `   • 📦 *Dropshippers & Online Sellers:* For sellers delivering nationwide. No physical shop address needed!\n\n` +
       `3️⃣ *Earn Your Verified Badge:* Complete quick visual proof (live stall photo or waybill slip/ID) to unlock the *✓ Verified Badge* on floate.xyz.\n\n` +
-      `4️⃣ *0% Commission & 25 Free Buyer Leads:* You keep 100% of your earnings, and new stores receive 25 free buyer connections!\n\n`;
+      `4️⃣ *0% Commission & Free Buyer Connections:* You keep 100% of your earnings, and all buyer connections on WhatsApp are free and unlimited!\n\n`;
 
     if (isRegistered) {
       msg += `ℹ️ *Note:* This WhatsApp number is already linked to *${existingMerchant!.businessName}*! You can manage your products, post daily status updates, or re-verify anytime below.`;
@@ -6665,7 +6964,7 @@ async function handleComprehensiveFaq(
       `📦 *No Physical Shop Needed:* You do NOT need a stall in a market. Floate welcomes remote sellers, social media vendors, and dropshippers.\n\n` +
       `🚚 *Nationwide Delivery:* Connect with buyers searching from Lagos, Abuja, Port Harcourt, Onitsha, and across Nigeria.\n\n` +
       `🛡️ *How Dropshippers Verify:* Instead of a shopfront photo, you simply provide proof of your inventory in hand, supplier delivery waybill, or owner ID.\n\n` +
-      `🎁 *25 Free Buyer Leads:* Start receiving direct buyer inquiries on this WhatsApp line with 0% commission!`;
+      `⚡ *Free Buyer Inquiries:* Start receiving direct buyer inquiries on this WhatsApp line with 0% commission!`;
 
     await sendWhatsAppMessage(toPhone, msg, {
       quickReplies: [
@@ -6683,8 +6982,8 @@ async function handleComprehensiveFaq(
       `${prefix}here is our transparent pricing for businesses:\n\n` +
       `✅ *100% Free Store Registration:* Creating your store profile on Floate costs ₦0.\n\n` +
       `✅ *0% Commission on Direct Deals:* You keep 100% of your buyer sales. Floate never takes a percentage of your direct transactions.\n\n` +
-      `✅ *25 Free Buyer Leads:* Every newly onboarded business gets 25 free buyer connections.\n\n` +
-      `💳 *Pay-As-You-Grow Credits:* If you want extra spotlight leads after your free package, you can top up starting at just ₦200 per qualified buyer connection.`;
+      `✅ *Free & Unlimited Buyer Connections:* All buyer inquiries on WhatsApp are 100% free with zero per-lead fees.\n\n` +
+      `🚀 *Product Boosts:* Pin your products to the top of category search results starting at just ₦1,000 for 7 days.`;
 
     await sendWhatsAppMessage(toPhone, msg, {
       quickReplies: [
@@ -6919,31 +7218,7 @@ async function execute10CardSearch(toPhone: string, senderName: string, params: 
   // 1. Query override (e.g. "shoes in onitsha") takes highest precedence for this search
   // 2. Otherwise default to buyer's saved primaryLocation for proximity prioritization
   const buyer = await firestoreDb.getOrCreateBuyerAccount(toPhone, 'whatsapp', senderName);
-  const targetLoc = location || parsed.targetSellerLocation || buyer.primaryLocation || undefined;
-
-  // If buyer has no location saved and did not specify one in the search query, prompt for location first
-  if (!targetLoc) {
-    updateWhatsAppSession(toPhone, {
-      state: 'AWAITING_PRIMARY_LOCATION',
-      pendingInitialText: queryText,
-    });
-    await sendWhatsAppMessage(
-      toPhone,
-      `📍 *What city or state are you shopping from?*\n\n` +
-      `To connect you with verified sellers of *${cleanProduct}* near you with fast local delivery or shop visits, please reply with your city or choose below:`,
-      {
-        quickReplies: [
-          { id: 'loc_lagos', title: '📍 Lagos' },
-          { id: 'loc_abuja', title: '📍 Abuja' },
-          { id: 'loc_ph', title: '📍 Port Harcourt' },
-          { id: 'loc_onitsha', title: '📍 Onitsha' },
-          { id: 'loc_enugu', title: '📍 Enugu' },
-          { id: 'loc_ibadan', title: '📍 Ibadan' },
-        ],
-      }
-    );
-    return;
-  }
+  const targetLoc = location || parsed.targetSellerLocation || buyer.primaryLocation || 'Nigeria';
 
   // 2. Query Firestore / Google Sheets for matching verified businesses
   let searchResults;
@@ -7784,20 +8059,28 @@ async function handleVendorHubRouting(toPhone: string, senderName: string) {
   if (isClaimed && existingMerchant && existingMerchant.businessName) {
     updateWhatsAppSession(toPhone, { state: 'VENDOR_PORTAL' });
     const stats = await firestoreDb.getMerchantStats(toPhone);
-    const customersRemaining = Math.floor(stats.balance / 5);
+    const cred = await resolveCredential(toPhone);
+    const fidCode = cred?.fid || (existingMerchant as any)?.fid || 'FLT-VERIFIED';
+    const storeUrl = `https://floate.xyz/v/${fidCode}`;
+    const boostCredits = typeof (existingMerchant as any)?.boostCredits === 'number' ? (existingMerchant as any).boostCredits : 0;
+    const isPlus = (existingMerchant as any)?.tier === 'VERIFIED_PLUS' || (existingMerchant as any)?.isVerifiedPlus;
 
     const hubMsg =
-      `*FLOATE Merchant Dashboard*\n` +
+      `*FLOATE Merchant Dashboard* 🏪\n` +
       `─────────────────────────\n` +
       `Store: *${existingMerchant.businessName}*\n` +
       (existingMerchant.ownerFullName ? `Owner: *${existingMerchant.ownerFullName}*\n` : '') +
       `Location: ${existingMerchant.city || existingMerchant.state || 'Nigeria'}\n` +
-      `Status: Verified Active Merchant\n\n` +
+      `Status: ${isPlus ? '⭐ *Verified Plus Merchant*' : '🛡️ *Verified Physical Stall*'}\n` +
+      `Official FID: *${fidCode}*\n` +
+      `Storefront: ${storeUrl}\n\n` +
       `*Performance Overview:*\n` +
-      `• Customer Credits: *${stats.balance} Floate Credits* (${customersRemaining} Customers remaining)\n` +
-      `• Search Views: *${stats.appearances}*\n` +
-      `• Connected Customers: *${stats.leadsGenerated}*\n` +
-      `• Listed Products: *${stats.productCount}*\n` +
+      `• Search Views: *${stats.appearances}* views in discovery\n` +
+      `• Connected Buyers: *${stats.leadsGenerated}* direct inquiries (0% commission)\n` +
+      `• Listed Products: *${stats.productCount}* active products\n` +
+      `• Available Boosts: *${boostCredits}* product boost${boostCredits === 1 ? '' : 's'}\n` +
+      `• Customer Inquiries: *Free & Unlimited* ⚡\n` +
+      `• SafePay Escrow: *Active for protected orders*\n` +
       `─────────────────────────\n` +
       `Select an option below:`;
 
@@ -7807,22 +8090,24 @@ async function handleVendorHubRouting(toPhone: string, senderName: string) {
         title: 'Merchant Hub',
         sections: [
           {
-            title: 'Merchant Options',
+            title: 'Store Growth & Management',
             rows: [
-              { id: 'btn_vendor_topup_credits', title: '⚡ Top Up Floate Credits', description: 'Get more customer connection credits' },
-              { id: 'btn_vendor_referral', title: '🎁 Refer & Earn Free Credits', description: 'Earn 10 credits (2 customers) for each store referred' },
-              { id: 'btn_vendor_stats', title: '1. Performance & Stats', description: 'Search appearances and customer metrics' },
-              { id: 'btn_vendor_add_product', title: '2. Add New Product', description: 'List product in a single message' },
-              { id: 'btn_vendor_edit_products', title: '3. View Inventory', description: 'Manage inventory items and prices' },
-              { id: 'btn_faq', title: '4. Merchant FAQ', description: 'Learn how customers and credits work' },
+              { id: 'btn_download_kit', title: '🛡️ Download Brand Kit', description: 'Get 1080p Badge Card, Certificate & Flyer' },
+              { id: 'btn_boost_product', title: '🚀 Boost a Product', description: 'Pin to top of search results for 7 days' },
+              { id: 'btn_vendor_add_product', title: '➕ Add New Product', description: 'Post new item with photo, title & price' },
+              { id: 'btn_vendor_edit_products', title: '📦 View / Manage Inventory', description: 'Manage inventory items, stock & prices' },
+              { id: 'btn_vendor_stats', title: '📊 Performance & Analytics', description: 'Search views and customer inquiry metrics' },
+              { id: 'btn_upgrade_verified_plus', title: '⭐ Upgrade to Verified Plus', description: 'Official seal, +25 search boost & 3 free boosts' },
+              { id: 'btn_my_store', title: '🌐 View Web Storefront', description: 'Open your online digital product catalog' },
+              { id: 'btn_faq', title: '❓ Merchant Guide & FAQ', description: 'SafePay escrow, customer inquiries & tips' },
             ],
           },
         ],
       },
       quickReplies: [
-        { id: 'btn_vendor_referral', title: '🎁 Refer & Earn' },
-        { id: 'btn_vendor_stats', title: '📊 Performance & Stats' },
+        { id: 'btn_download_kit', title: '🛡️ Brand Kit' },
         { id: 'btn_vendor_add_product', title: '➕ Add Product' },
+        { id: 'btn_boost_product', title: '🚀 Boost Product' },
       ],
     });
     return;
@@ -7854,12 +8139,13 @@ async function handleVendorHubRouting(toPhone: string, senderName: string) {
 
   // SCENARIO C: New Unregistered Vendor
   const introMsg =
-    `*Grow Your Business with FLOATE*\n` +
+    `*Grow Your Business with FLOATE* 🏪\n` +
     `─────────────────────────\n` +
-    `List your shop to receive direct, qualified buyer inquiries on WhatsApp with zero commission.\n\n` +
-    `• Verified Merchant listing\n` +
-    `• Direct buyer inquiries\n` +
-    `• 25 free Floate Credits (5 customer connections)\n` +
+    `List your physical stall to receive direct, qualified buyer inquiries on WhatsApp with zero commission.\n\n` +
+    `• 🛡️ Verified Physical Stall credential & Brand Kit\n` +
+    `• ⚡ Free unlimited buyer inquiries on WhatsApp\n` +
+    `• 🌐 Instant digital storefront catalog link\n` +
+    `• 🔒 SafePay escrow for secure nationwide delivery\n` +
     `─────────────────────────\n` +
     `Choose an option below:`;
 
@@ -7876,33 +8162,37 @@ async function handleVendorHubRouting(toPhone: string, senderName: string) {
  * 5a. Performance & Stats
  */
 async function handleVendorStats(toPhone: string, senderName: string) {
-  const merchant = await firestoreDb.getMerchant(toPhone) || sheetsDb.getListingByPhone(toPhone);
+  const merchant = (await firestoreDb.getMerchant(toPhone)) || sheetsDb.getListingByPhone(toPhone);
   const bizName = merchant?.businessName || 'Your Business';
   const stats = await firestoreDb.getMerchantStats(toPhone);
-  const customersRemaining = Math.floor(stats.balance / 5);
+  const cred = await resolveCredential(toPhone);
+  const fidCode = cred?.fid || (merchant as any)?.fid || 'FLT-VERIFIED';
+  const boostCredits = typeof (merchant as any)?.boostCredits === 'number' ? (merchant as any).boostCredits : 0;
+  const isPlus = (merchant as any)?.tier === 'VERIFIED_PLUS' || (merchant as any)?.isVerifiedPlus;
 
   const statsMsg =
-    `*Merchant Performance & Stats*\n` +
+    `*Merchant Performance & Analytics* 📊\n` +
     `─────────────────────────\n` +
     `Store: *${bizName}*\n` +
-    `Status: Verified Active Merchant\n` +
+    `Status: ${isPlus ? '⭐ Verified Plus Merchant' : '🛡️ Verified Physical Stall'} (${fidCode})\n` +
     `Listed Since: ${stats.registeredSince}\n\n` +
     `*Key Metrics:*\n` +
-    `• Available Customer Credits: *${stats.balance} Floate Credits* (${customersRemaining} Customers remaining)\n` +
-    `• Search Appearances: *${stats.appearances}* views in FLOATE discovery\n` +
-    `• Direct Customer Inquiries: *${stats.leadsGenerated}* connected customers\n` +
+    `• Search Views: *${stats.appearances}* views in Floate discovery\n` +
+    `• Direct Customer Inquiries: *${stats.leadsGenerated}* connected buyers\n` +
     `• Active Listed Items: *${stats.productCount}* products\n` +
-    `• Referral Bonus Earnings: *${stats.referralCreditsEarned || 0} Credits* (${stats.referralsCount || 0}/10 businesses referred)\n` +
+    `• Available Product Boosts: *${boostCredits}* boosts\n` +
+    `• Inquiry Lead Fee: *₦0 (100% Free & Unlimited)* ⚡\n` +
+    `• SafePay Escrow: *Active for protected orders*\n` +
     `─────────────────────────\n` +
-    `Credits: 5 Floate Credits = 1 connected customer directly on your WhatsApp (+${toPhone}). Credits never expire.`;
+    `Direct buyer inquiries on WhatsApp are 100% free with 0% commission.`;
 
   updateWhatsAppSession(toPhone, { state: 'VENDOR_PORTAL' });
 
   await sendWhatsAppMessage(toPhone, statsMsg, {
     quickReplies: [
-      { id: 'btn_vendor_referral', title: '🎁 Refer & Earn' },
-      { id: 'btn_vendor_topup_credits', title: '⚡ Top Up Credits' },
-      { id: 'btn_for_businesses', title: 'Merchant Menu' },
+      { id: 'btn_download_kit', title: '🛡️ Brand Kit' },
+      { id: 'btn_boost_product', title: '🚀 Boost Product' },
+      { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
     ],
   });
 }
@@ -8736,29 +9026,29 @@ async function handleVendorSponsorInquiry(cleanPhone: string, senderName: string
   const displayName = merchant?.businessName || (senderName && senderName !== 'Customer' ? senderName.trim() : '');
 
   if (isRegistered) {
-    const credits = (merchant as any)?.credit_balance ?? 0;
-    const leadsRemaining = Math.floor(credits / 5);
+    const boostCredits = typeof (merchant as any)?.boostCredits === 'number' ? (merchant as any).boostCredits : 0;
 
     const sponsorMsg =
-      `🌟 *Floate Sponsored Spotlight & Product Promotion* 🚀\n` +
+      `🌟 *Floate Product Boost & Search Spotlight* 🚀\n` +
       `━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `Hello ${displayName ? `*${displayName}*` : 'Store Owner'}! Welcome to Floate's Sponsored Promotion Hub.\n\n` +
-      `Want your store and products to appear at the very top of search results across your market?\n\n` +
-      `✨ *How Floate Sponsored Spotlight Works:*\n` +
-      `• *Top Search Placement:* Your products appear in the top Sponsored Spotlight cards whenever buyers search for items in your market or category.\n` +
-      `• *Verified Trust Badge:* Highlighted with Floate's Gold Verified Vendor trust badge.\n` +
-      `• *Pay-Per-Lead (Zero Wasted Budget):* You only spend 5 Floate Credits when an actual verified buyer connects directly with you on WhatsApp via Floate Secure Line.\n` +
-      `• *Instant Top-Up:* Recharge credits anytime starting from just ₦1,000 (gives 5 qualified customer inquiries).\n\n` +
-      `📊 *Your Current Status:*\n` +
-      `• Available Balance: *${credits} Floate Credits* (~${leadsRemaining} customer leads)\n` +
-      `• Active Products: Search-ready\n\n` +
-      `Ready to boost your products and get more buyer inquiries?`;
+      `Hello ${displayName ? `*${displayName}*` : 'Store Owner'}! Welcome to Floate's Product Promotion Hub.\n\n` +
+      `Want your items to appear at the very top when shoppers search your market or category?\n\n` +
+      `✨ *How Product Boosts Work:*\n` +
+      `• *Top Search Placement:* Your product is pinned to the top of category search results for 7 full days.\n` +
+      `• *Verified Trust Badge:* Gold badge showing buyers your physical stall is verified.\n` +
+      `• *Direct Inquiries:* Shoppers connect straight to your WhatsApp with 0% commission.\n\n` +
+      `📊 *Your Status:*\n` +
+      `• Available Boost Credits: *${boostCredits}* boosts\n\n` +
+      `💡 *Promotion Options:*\n` +
+      `• *1-Week Product Boost:* ₦1,000 (Launch rate)\n` +
+      `• *5-Boost Bundle Pack:* ₦4,000 (Save ₦1,000)\n` +
+      `• *⭐ Verified Plus (Founding Merchant):* ₦5,000 / year (Includes 3 free boosts + +25 search ranking + official certificate)`;
 
     await sendWhatsAppMessage(cleanPhone, sponsorMsg, {
       quickReplies: [
-        { id: 'btn_vendor_topup_credits', title: '💳 Top Up Credits' },
-        { id: 'btn_vendor_add_product', title: '🛍️ Add Product' },
-        { id: 'btn_for_businesses', title: '🏪 Business Hub' },
+        { id: 'btn_boost_product', title: '🚀 Boost Product' },
+        { id: 'btn_upgrade_verified_plus', title: '⭐ Verified Plus' },
+        { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
       ],
     });
     return;
@@ -8780,6 +9070,167 @@ async function handleVendorSponsorInquiry(cleanPhone: string, senderName: string
       { id: 'btn_start_registration', title: '📝 Register Store' },
       { id: 'btn_claim_shop', title: '🛡️ Claim Existing Shop' },
       { id: 'btn_home', title: '🏠 Main Menu' },
+    ],
+  });
+}
+
+/**
+ * Vendor Product Boost Handler
+ */
+async function handleVendorBoostProduct(cleanPhone: string, senderName: string): Promise<void> {
+  const merchant = (await firestoreDb.getMerchant(cleanPhone)) || sheetsDb.getListingByPhone(cleanPhone);
+  const products = await firestoreDb.getProductsByMerchant(cleanPhone);
+  const boostCredits = typeof (merchant as any)?.boostCredits === 'number' ? (merchant as any).boostCredits : 0;
+
+  if (boostCredits > 0 && products && products.length > 0) {
+    let msg = `🚀 *You Have ${boostCredits} Boost Credit${boostCredits === 1 ? '' : 's'} Available!*\n\n`;
+    msg += `Select a product below to pin it to the top of category search results for 7 days:\n\n`;
+    products.slice(0, 5).forEach((p, idx) => {
+      const isCurrentlyBoosted = (p as any)?.isBoosted;
+      msg += `${idx + 1}️⃣ *${p.product}* (${p.price || 'Price on request'})${isCurrentlyBoosted ? ' ⚡ (Already Boosted)' : ''}\n`;
+    });
+    msg += `\nReply with the product number (e.g. *1*) or tap an option below:`;
+
+    const productRows = products.slice(0, 5).map((p, idx) => ({
+      id: `btn_activate_boost_${p.id || idx}`,
+      title: `${idx + 1}. ${p.product}`.slice(0, 24),
+      description: `Boost for 7 days (${p.price || 'Contact'})`.slice(0, 72),
+    }));
+
+    await sendWhatsAppMessage(cleanPhone, msg, {
+      listMenu: {
+        buttonText: '🚀 Select Product to Boost',
+        title: 'Available Products',
+        sections: [
+          {
+            title: 'Your Catalog',
+            rows: productRows,
+          },
+        ],
+      },
+      quickReplies: [
+        { id: 'btn_boost_buy_single', title: '💳 Buy 1 Boost (₦1k)' },
+        { id: 'btn_boost_buy_bundle', title: '⚡ 5-Boost Pack (₦4k)' },
+        { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
+      ],
+    });
+    return;
+  }
+
+  // No active boost credits or no products
+  if (!products || products.length === 0) {
+    await sendWhatsAppMessage(
+      cleanPhone,
+      `🚀 *Floate Product Boost*\n─────────────────────────\n` +
+      `You need to list at least one product before boosting!\n\n` +
+      `Tap *Add Product* to list your item now:`,
+      {
+        quickReplies: [
+          { id: 'btn_vendor_add_product', title: '➕ Add Product' },
+          { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
+        ],
+      }
+    );
+    return;
+  }
+
+  // Has products but 0 boost credits
+  const checkout = await monetizationService.initiateTierCheckout({
+    merchantPhone: cleanPhone,
+    packageId: 'PRODUCT_BOOST_SINGLE',
+    customerName: senderName,
+  }).catch(() => null);
+
+  const bundleCheckout = await monetizationService.initiateTierCheckout({
+    merchantPhone: cleanPhone,
+    packageId: 'PRODUCT_BOOST_BUNDLE_5',
+    customerName: senderName,
+  }).catch(() => null);
+
+  const boostMsg =
+    `🚀 *Boost Your Products on Floate*\n` +
+    `─────────────────────────\n` +
+    `Pin your products to the top of category search results and get 5x more buyer inquiries directly on WhatsApp!\n\n` +
+    `🔥 *Launch Special Pricing:*\n` +
+    `• *1 Product Boost (7 Days):* ₦1,000 (Regular: ₦1,500)\n` +
+    `• *5-Boost Bundle Pack:* ₦4,000 (Save ₦1,000!)\n` +
+    `• *Verified Plus Tier:* ₦5,000 / year (Includes 3 free boosts + verification certificate)\n\n` +
+    (checkout?.checkoutUrl ? `💳 *Instant Payment Link (1-Week Boost):*\n${checkout.checkoutUrl}\n\n` : '') +
+    (bundleCheckout?.checkoutUrl ? `⚡ *5-Boost Pack Link:*\n${bundleCheckout.checkoutUrl}\n\n` : '') +
+    `Choose a package below to activate:`;
+
+  await sendWhatsAppMessage(cleanPhone, boostMsg, {
+    quickReplies: [
+      { id: 'btn_boost_buy_single', title: '💳 1 Boost (₦1,000)' },
+      { id: 'btn_boost_buy_bundle', title: '⚡ 5-Boost Pack (₦4,000)' },
+      { id: 'btn_upgrade_verified_plus', title: '⭐ Verified Plus' },
+    ],
+  });
+}
+
+/**
+ * Vendor Verified Plus Upgrade Handler
+ */
+async function handleVendorVerifiedPlusUpgrade(cleanPhone: string, senderName: string): Promise<void> {
+  const merchant = (await firestoreDb.getMerchant(cleanPhone)) || sheetsDb.getListingByPhone(cleanPhone);
+  const bizName = merchant?.businessName || (senderName && senderName !== 'Customer' ? senderName.trim() : 'Your Store');
+
+  const checkout = await monetizationService.initiateTierCheckout({
+    merchantPhone: cleanPhone,
+    packageId: 'VERIFIED_PLUS',
+    customerName: senderName,
+  }).catch(() => null);
+
+  const plusMsg =
+    `⭐ *FLOATE VERIFIED PLUS (FOUNDING MERCHANT)* 🛡️\n` +
+    `─────────────────────────\n` +
+    `Store: *${bizName}*\n\n` +
+    `Upgrade your business to the most trusted merchant tier on Floate:\n\n` +
+    `🎁 *What You Get:*\n` +
+    `• 📜 *Official Certificate of Trust & Verification* (High-res 1080x1920)\n` +
+    `• 🛡️ *1080p Badge Card & Market Stall Flyer* (Print & WhatsApp Status ready)\n` +
+    `• ⚡ *+25 Search Match Priority* across all buyer item searches\n` +
+    `• 🚀 *3 Free Product Boosts* included (₦3,000 value)\n` +
+    `• ⭐ *Gold Verified Plus Seal* on WhatsApp and floate.xyz\n` +
+    `• 🌐 *Shareable Digital Web Storefront Profile*\n\n` +
+    `💰 *Founding Merchant Price:* *₦5,000 / year*\n` +
+    `_(Standard price ₦7,500 starts after launch period)_\n\n` +
+    (checkout?.checkoutUrl ? `👉 *Tap to Upgrade & Pay Securely:*\n${checkout.checkoutUrl}\n\n` : '') +
+    `Select an option below:`;
+
+  await sendWhatsAppMessage(cleanPhone, plusMsg, {
+    quickReplies: [
+      { id: 'btn_pay_verified_plus', title: '💳 Pay ₦5,000 Now' },
+      { id: 'btn_download_kit', title: '🛡️ View My Brand Kit' },
+      { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
+    ],
+  });
+}
+
+/**
+ * Vendor Web Storefront Handler
+ */
+async function handleVendorMyStore(cleanPhone: string, senderName: string): Promise<void> {
+  const cred = await resolveCredential(cleanPhone);
+  const merchant = (await firestoreDb.getMerchant(cleanPhone)) || sheetsDb.getListingByPhone(cleanPhone);
+  const bizName = merchant?.businessName || cred?.biz || 'Your Store';
+  const fid = cred?.fid || (merchant as any)?.fid;
+  const storeUrl = fid ? `https://floate.xyz/v/${fid}` : `https://floate.xyz/vendor/${cleanPhone}`;
+
+  const storeMsg =
+    `🌐 *Your FLOATE Web Storefront is Live!* 🏪\n` +
+    `─────────────────────────\n` +
+    `Store: *${bizName}*\n` +
+    (fid ? `Official FID: *${fid}*\n` : '') +
+    `Link: ${storeUrl}\n\n` +
+    `Shoppers can browse your verified inventory, see your stall location, and tap to order directly with you on WhatsApp with 0% commission.\n\n` +
+    `💡 *Tip:* Put this link in your WhatsApp About, Instagram bio, or share on your WhatsApp Status!`;
+
+  await sendWhatsAppMessage(cleanPhone, storeMsg, {
+    quickReplies: [
+      { id: 'btn_download_kit', title: '🛡️ Download Brand Kit' },
+      { id: 'btn_vendor_add_product', title: '➕ Add Product' },
+      { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
     ],
   });
 }
@@ -11168,9 +11619,12 @@ async function handleWhatsAppVerificationSteps(
       quickReplies: [
         { id: 'btn_my_store', title: '🏪 My Store' },
         { id: 'btn_add_product', title: '➕ Add Product' },
-        { id: 'btn_home', title: '🏠 Main Menu' },
+        { id: 'btn_download_badge', title: '🎨 Get Store Posters' },
       ],
     });
+
+    // Automatically send verified store badge card, certificate, and stall flyer pictures directly into WhatsApp!
+    await sendMerchantVisualAssetsToWhatsApp(toPhone, finalOwnerName, finalBizName, finalLocation);
     return;
   }
 }
@@ -11225,7 +11679,7 @@ async function handleRegistrationSteps(
     await sendWhatsAppMessage(
       toPhone,
       `🏪 *Welcome to Floate for Businesses!*\n\n` +
-      `Business registration is now completed quickly via our official web portal with **zero commission** and **25 free credits**!\n\n` +
+      `Business registration is now completed quickly via our official web portal with **zero commission** and **free unlimited customer connections**!\n\n` +
       `👉 *Click here to set up your store in 2 minutes:*\n${webRegUrl}\n\n` +
       `_Once registered, you can manage your items and check your buyer inquiries anytime right here on WhatsApp!_`,
       {
@@ -11467,7 +11921,7 @@ async function handleRegistrationSteps(
     : `Credits: *25 Free Customers credited to +${toPhone}*\n` + (session?.referredBy ? `_🎁 Referral Bonus: Add your first product anytime to activate +10 bonus customer credits!_\n` : '');
 
   const confirmCard =
-    `*Registration Successful*\n` +
+    `*Registration Successful* 🎉\n` +
     `─────────────────────────\n` +
     `Store: *${bizName}*\n` +
     `Owner: *${ownerFullName}*\n` +
@@ -11476,16 +11930,16 @@ async function handleRegistrationSteps(
     `*Registered Products:*\n` +
     `${productListSummary}\n` +
     limitNote +
-    creditsLine +
-    `Status: *Active Verified Merchant*\n` +
+    `Inquiries: *Free & Unlimited on WhatsApp (0% commission)* ⚡\n` +
+    `Status: *Active Verified Merchant* 🛡️\n` +
     `─────────────────────────\n` +
     `Your store is now live in FLOATE search index. When buyers search for your products, they will be connected directly to your WhatsApp.`;
 
   await sendWhatsAppMessage(toPhone, confirmCard, {
     quickReplies: [
-      { id: 'btn_vendor_referral', title: '🎁 Refer & Earn' },
-      { id: 'btn_vendor_add_product', title: 'Add Product' },
-      { id: 'btn_vendor_stats', title: 'My Stats' },
+      { id: 'btn_download_kit', title: '🛡️ Brand Kit' },
+      { id: 'btn_vendor_add_product', title: '➕ Add Product' },
+      { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
     ],
   });
 }
@@ -11495,13 +11949,13 @@ async function handleRegistrationSteps(
  */
 async function handleFaqMenu(toPhone: string, senderName: string) {
   const faqMsg =
-    `*Frequently Asked Questions (FAQ)*\n` +
+    `*Frequently Asked Questions (FAQ)* ❓\n` +
     `─────────────────────────\n` +
-    `Learn how FLOATE connects buyers to verified merchants:\n\n` +
-    `1. *How Customer Connections Work*\n` +
-    `2. *Customer Credits & Pricing*\n` +
-    `3. *Zero Commission Policy*\n` +
-    `4. *Managing Listings & Inventory*\n` +
+    `Learn how FLOATE works for buyers and merchants:\n\n` +
+    `1. *Direct Buyer Connections (0% Commission)*\n` +
+    `2. *Verified Badges & Brand Kit (1080p Assets)*\n` +
+    `3. *SafePay Escrow (Secure Nationwide Delivery)*\n` +
+    `4. *Managing Products & Search Boosts*\n` +
     `─────────────────────────\n` +
     `Select a topic below:`;
 
@@ -11513,14 +11967,19 @@ async function handleFaqMenu(toPhone: string, senderName: string) {
         {
           title: 'FAQ Topics',
           rows: [
-            { id: 'faq_leads', title: '1. Customer Inquiries', description: 'How customers find and message you' },
-            { id: 'faq_credits', title: '2. Credits System', description: '25 free customer connections & balance' },
-            { id: 'faq_fees', title: '3. Zero Commission', description: 'No hidden fees or commission on sales' },
-            { id: 'faq_register', title: '4. Manage Listings', description: 'Add or update items in one message' },
+            { id: 'faq_leads', title: '1. Customer Inquiries', description: 'Free unlimited direct WhatsApp inquiries' },
+            { id: 'faq_verification_kit', title: '2. Badges & Brand Kit', description: 'Official badge, certificate & flyer' },
+            { id: 'faq_safepay', title: '3. SafePay Escrow', description: 'Zero scam protection for buyers & vendors' },
+            { id: 'faq_boosts', title: '4. Products & Boosts', description: 'List items & pin them to top of search' },
           ],
         },
       ],
     },
+    quickReplies: [
+      { id: 'btn_download_kit', title: '🛡️ Brand Kit' },
+      { id: 'btn_find_product', title: '🔍 Search Items' },
+      { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
+    ],
   });
 }
 
@@ -11529,29 +11988,31 @@ async function handleFaqSelection(toPhone: string, senderName: string, faqId: st
 
   if (faqId === 'faq_leads') {
     answer =
-      `*How Customer Connections Work*\n` +
+      `*How Customer Connections Work* ⚡\n` +
       `─────────────────────────\n` +
-      `When buyers search for products on FLOATE, our search engine matches them with verified merchants located in their target market or city.\n\n` +
-      `Customers receive a direct button to message your WhatsApp with their requested item. You chat and close deals directly with zero intermediaries.`;
-  } else if (faqId === 'faq_credits') {
+      `When shoppers search for products on FLOATE, our search engine matches them with verified merchants located in their target market or city.\n\n` +
+      `Customers receive a direct button to message your WhatsApp with their requested item. Inquiries are *100% free and unlimited* with *0% sales commission*!`;
+  } else if (faqId === 'faq_verification_kit' || faqId === 'faq_credits') {
     answer =
-      `*Customer Credits & Balance*\n` +
+      `*Verified Badges & Brand Kit* 🛡️\n` +
       `─────────────────────────\n` +
-      `• Every new merchant receives *25 Free Customers* upon registration.\n` +
-      `• 1 credit = 1 connected customer inquiry directly to your WhatsApp.\n` +
-      `• Credits are tied directly to your unique WhatsApp number and never expire.\n` +
-      `• You can check your remaining credits anytime in the Merchant Dashboard.`;
-  } else if (faqId === 'faq_fees') {
+      `• *Verified Physical Stall:* Confirms your stall location and unlocks your unique FID.\n` +
+      `• *Official 1080p Badge Card & Certificate:* Formatted for WhatsApp Status, Instagram, and physical printing.\n` +
+      `• *Market Stall Flyer (A5):* Print and hang at your stall with your official QR code.\n` +
+      `• *Verified Plus:* Founding Merchant tier with official certificate, +25 search boost & 3 free product boosts.`;
+  } else if (faqId === 'faq_safepay' || faqId === 'faq_fees') {
     answer =
-      `*Zero Commission Policy*\n` +
+      `*Zero Commission & SafePay Escrow* 🔒\n` +
       `─────────────────────────\n` +
-      `FLOATE charges 0% commission on your sales. You keep 100% of the price negotiated with your buyers. Our core focus is strictly connecting buyers and merchants directly.`;
-  } else if (faqId === 'faq_register') {
+      `• *0% Commission:* You keep 100% of your selling price on all direct buyer sales.\n` +
+      `• *SafePay Escrow:* Optional protection for deliveries. Buyer deposits payment into secure Floate escrow, vendor delivers goods via waybill/rider, and funds are disbursed upon buyer confirmation. Zero scam, zero worries!`;
+  } else if (faqId === 'faq_boosts' || faqId === 'faq_register') {
     answer =
-      `*Managing Products & Listings*\n` +
+      `*Managing Products & Search Boosts* 🚀\n` +
       `─────────────────────────\n` +
-      `You can add new products in a single message at any time (up to 3 free product listings).\n\n` +
-      `Simply reply *Add Product* or *Store* from WhatsApp to post new items with price and description.`;
+      `• *Add Products:* Tap *Add Product* anytime to list items with photos, names, and prices.\n` +
+      `• *Product Boosts:* Pin your product to the top of category search results for 7 days to get maximum buyer visibility.\n` +
+      `• *Boost Pricing:* ₦1,000 for 7 days, or ₦4,000 for a 5-boost pack.`;
   } else {
     await handleFaqMenu(toPhone, senderName);
     return;
@@ -11559,9 +12020,9 @@ async function handleFaqSelection(toPhone: string, senderName: string, faqId: st
 
   await sendWhatsAppMessage(toPhone, answer, {
     quickReplies: [
-      { id: 'btn_for_businesses', title: 'Merchant Hub' },
-      { id: 'btn_start_registration', title: 'Register Store' },
-      { id: 'btn_find_product', title: 'Search Items' },
+      { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
+      { id: 'btn_download_kit', title: '🛡️ Brand Kit' },
+      { id: 'btn_find_product', title: '🔍 Search Items' },
     ],
   });
 }
@@ -11664,13 +12125,13 @@ async function handleClaimProcessSteps(toPhone: string, senderName: string, text
       await sendWhatsAppMessage(
         toPhone,
         `🎉 *Instant Verification Successful!*\n\n` +
-        `Welcome, *${ownerFullName}*! Your ownership of *${draft.businessName}* has been officially verified. 🟢\n\n` +
-        `You have 25 free customer credits (+${toPhone}). When buyers search for your products on FLOATE, they will be connected directly to your WhatsApp!`,
+        `Welcome, *${ownerFullName}*! Your ownership of *${draft.businessName}* has been officially verified. 🛡️\n\n` +
+        `Your physical stall credentials and brand kit are now active. When buyers search for your products on FLOATE, they will be connected directly to your WhatsApp with 0% commission!`,
         {
           quickReplies: [
-            { id: 'btn_vendor_add_product', title: 'Add Product' },
-            { id: 'btn_vendor_stats', title: 'My Stats' },
-            { id: 'btn_for_businesses', title: 'Merchant Hub' },
+            { id: 'btn_download_kit', title: '🛡️ Brand Kit' },
+            { id: 'btn_vendor_add_product', title: '➕ Add Product' },
+            { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
           ],
         }
       );
@@ -11750,14 +12211,14 @@ async function handleClaimProcessSteps(toPhone: string, senderName: string, text
     resetWhatsAppSession(toPhone);
     await sendWhatsAppMessage(
       toPhone,
-      `🎉 *Ownership Verified!* You have successfully claimed *${draft.businessName}* on FLOATE! 🟢\n\n` +
+      `🎉 *Ownership Verified!* You have successfully claimed *${draft.businessName}* on FLOATE! 🛡️\n\n` +
       `Welcome, *${draft.ownerFullName || 'Business Owner'}*!\n\n` +
-      `You have 25 free customer credits (+${toPhone}). When buyers search for your products on FLOATE, they will be connected directly to your WhatsApp!`,
+      `Your physical stall credentials and brand kit are now active. When buyers search for your products on FLOATE, they will be connected directly to your WhatsApp with 0% commission!`,
       {
         quickReplies: [
-          { id: 'btn_vendor_add_product', title: 'Add Product' },
-          { id: 'btn_vendor_stats', title: 'My Stats' },
-          { id: 'btn_for_businesses', title: 'Merchant Hub' },
+          { id: 'btn_download_kit', title: '🛡️ Brand Kit' },
+          { id: 'btn_vendor_add_product', title: '➕ Add Product' },
+          { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
         ],
       }
     );

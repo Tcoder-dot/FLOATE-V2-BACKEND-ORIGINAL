@@ -32,6 +32,8 @@ export interface MatchedVendorResult {
   profileImageUrl?: string;
   productImages?: string[];
   identityVerified?: boolean;
+  isVerifiedPlus?: boolean;
+  isBoosted?: boolean;
 }
 
 export interface SearchExecutionResponse {
@@ -175,6 +177,8 @@ function formatResultItem(listing: BusinessListing): MatchedVendorResult {
     profileImageUrl: listing.profileImageUrl || undefined,
     productImages: listing.productImages && listing.productImages.length > 0 ? listing.productImages : undefined,
     identityVerified: Boolean(listing.identityVerified),
+    isVerifiedPlus: Boolean(listing.isVerifiedPlus),
+    isBoosted: Boolean(listing.isBoosted),
   };
 }
 
@@ -279,17 +283,25 @@ export async function executeSearch(input: SearchInput): Promise<SearchExecution
   const spotlightListings: MatchedVendorResult[] = [];
   const spotlightIds = new Set<string>();
 
-  // A. Only include spotlight businesses that legitimately matched the search query / category
+  // A. Include spotlight businesses that legitimately matched the search query / category
+  // Prioritize: Verified Plus (+25 match priority) & Boosted Products, followed by Recommended merchants
   for (const item of combinedResults) {
-    if (item.isHighlyRecommended && !spotlightIds.has(item.id)) {
+    if ((item.isHighlyRecommended || item.isVerifiedPlus || item.isBoosted) && !spotlightIds.has(item.id)) {
       spotlightIds.add(item.id);
       spotlightListings.push(item);
     }
   }
 
+  // Sort spotlight so Verified Plus and Boosted products appear first
+  spotlightListings.sort((a, b) => {
+    const aScore = (a.isVerifiedPlus ? 30 : 0) + (a.isBoosted ? 20 : 0) + (a.isHighlyRecommended ? 10 : 0);
+    const bScore = (b.isVerifiedPlus ? 30 : 0) + (b.isBoosted ? 20 : 0) + (b.isHighlyRecommended ? 10 : 0);
+    return bScore - aScore;
+  });
+
   const spotlightNames = new Set(spotlightListings.map((s) => s.businessName.toLowerCase().trim()));
   const organicListings = combinedResults.filter(
-    (r) => !r.isHighlyRecommended && !spotlightIds.has(r.id) && !spotlightNames.has(r.businessName.toLowerCase().trim())
+    (r) => !r.isHighlyRecommended && !r.isVerifiedPlus && !r.isBoosted && !spotlightIds.has(r.id) && !spotlightNames.has(r.businessName.toLowerCase().trim())
   );
 
   const moreBusinessesDeepLink = generateMoreBusinessesDeepLink(rawQuery, input.location || parsed.targetSellerLocation);

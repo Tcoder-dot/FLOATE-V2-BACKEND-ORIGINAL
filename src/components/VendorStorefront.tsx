@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Store,
   ShieldCheck,
@@ -14,8 +14,23 @@ import {
   X,
   Upload,
   Camera,
-  Check
+  Check,
+  Award,
+  Download,
+  Printer,
+  QrCode,
+  FileText
 } from 'lucide-react';
+import { FloateVerifiedSeal } from './credentials/FloateBadgeCard';
+import { FloateVerifiedCertificate } from './credentials/FloateVerifiedCertificate';
+import { FloateBadgeCard } from './credentials/FloateBadgeCard';
+import { FloateMarketFlyer } from './credentials/FloateMarketFlyer';
+import { FloateSquareBoost } from './credentials/FloateSquareBoost';
+import {
+  FloateCredential,
+  createCredentialForMerchant,
+  getCityCode
+} from '../bot/services/credentialService';
 
 interface Product {
   id: string;
@@ -84,6 +99,41 @@ export function VendorStorefront() {
   const [submittingProduct, setSubmittingProduct] = useState(false);
   const [productSuccessMessage, setProductSuccessMessage] = useState('');
   const [productError, setProductError] = useState('');
+
+  // Floate Base Kit Modal State
+  const [isKitModalOpen, setIsKitModalOpen] = useState(false);
+  const [isBuyerVerifyModalOpen, setIsBuyerVerifyModalOpen] = useState(false);
+  const [activeKitTab, setActiveKitTab] = useState<'certificate' | 'badge' | 'flyer' | 'square'>('certificate');
+  const [copiedBio, setCopiedBio] = useState(false);
+
+  // Dynamic Merchant Location & Base-Kit Credential Binding
+  const merchantLocation = useMemo(() => {
+    if (merchant?.city && merchant?.state) {
+      return `${merchant.city}, ${merchant.state}`;
+    }
+    if (merchant?.city) return `${merchant.city}, Nigeria`;
+    if (merchant?.state) return `${merchant.state}, Nigeria`;
+    return 'Lagos Island, Lagos';
+  }, [merchant]);
+
+  const dynamicCredential: FloateCredential = useMemo(() => {
+    const rawName = merchant?.ownerFullName || merchant?.businessName || 'Verified Merchant';
+    const bizName = merchant?.businessName || 'Verified Merchant Store';
+    const cleanPhone = (vendorPhone || '08031112222').replace(/\D/g, '');
+    const cityCode = getCityCode(merchantLocation);
+    const suffix = cleanPhone.slice(-4) || '0142';
+    const fid = `FLT-${cityCode}-00${suffix.padStart(3, '0')}`;
+
+    return createCredentialForMerchant({
+      merchantId: merchant?.id || `m-${cleanPhone}`,
+      name: rawName,
+      biz: bizName,
+      loc: merchantLocation,
+      phone: cleanPhone,
+      isPlus: true,
+      customFid: fid
+    });
+  }, [merchant, merchantLocation, vendorPhone]);
 
   // Check URL path on mount or param changes
   useEffect(() => {
@@ -335,46 +385,72 @@ export function VendorStorefront() {
           <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/5 rounded-full blur-3xl pointer-events-none"></div>
           
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-amber-400 uppercase tracking-wider">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>Verified WhatsApp Storefront</span>
-                <span className="text-slate-600">·</span>
-                <span className="text-emerald-400 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Active Online
-                </span>
-              </div>
+            <div className="flex items-start sm:items-center gap-4">
+              {/* Official Floate Verified Scalloped Seal from Base Kit */}
+              <button
+                onClick={() => setIsBuyerVerifyModalOpen(true)}
+                title="Click to view Official Floate Certificate & Trust Verification"
+                className="group relative cursor-pointer hover:scale-105 active:scale-95 transition-all shrink-0 p-1 rounded-full bg-emerald-950/40 border border-emerald-500/20 hover:border-amber-400/50 shadow-lg"
+              >
+                <FloateVerifiedSeal size={62} />
+              </button>
 
-              <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-                {merchant?.businessName || 'Verified Merchant Store'}
-              </h1>
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider">
+                  <button
+                    onClick={() => setIsBuyerVerifyModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-700/60 text-emerald-300 hover:bg-emerald-900 transition-colors text-[11px] font-bold shadow-sm"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    ✓ FLOATE VERIFIED MERCHANT
+                  </button>
+                  <span className="font-mono text-amber-300/90 text-[11px] bg-slate-950 px-2.5 py-0.5 rounded border border-amber-500/30 font-bold">
+                    FID: {dynamicCredential.fid}
+                  </span>
+                  <span className="text-slate-600">·</span>
+                  <span className="text-emerald-400 flex items-center gap-1 text-[11px]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Active Online
+                  </span>
+                </div>
 
-              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 pt-1">
-                <span className="flex items-center gap-1 text-slate-300">
-                  <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                  {merchant?.city ? `${merchant.city}, ${merchant.state || 'Nigeria'}` : (merchant?.state || 'Nigeria')}
-                </span>
-                <span>·</span>
-                <span>{merchant?.category || 'Commercial Retail'}</span>
-                <span>·</span>
-                <span className="font-mono text-slate-300">+{vendorPhone}</span>
+                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                  {merchant?.businessName || 'Verified Merchant Store'}
+                </h1>
+
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-slate-400 pt-0.5">
+                  <span className="flex items-center gap-1 text-slate-300 font-medium">
+                    <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    {merchantLocation}
+                  </span>
+                  <span>·</span>
+                  <span>{merchant?.category || 'Commercial Retail'}</span>
+                  <span>·</span>
+                  <span className="font-mono text-slate-300">+{vendorPhone}</span>
+                </div>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 shrink-0 w-full md:w-auto">
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0 w-full md:w-auto">
+              <button
+                onClick={() => setIsKitModalOpen(true)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-emerald-950 font-black text-xs shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2 active:scale-95"
+              >
+                <Award className="w-4 h-4 fill-emerald-950" />
+                🛡️ Verified Kit & Assets
+              </button>
               <button
                 onClick={() => setIsAddProductOpen(true)}
-                className="w-full sm:w-auto px-4 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-400 font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2"
+                className="w-full sm:w-auto px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-400 font-bold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-3.5 h-3.5" />
                 + Add Product
               </button>
               <button
                 onClick={() => handleWhatsAppContact('General Storefront Inquiry')}
-                className="w-full sm:w-auto px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-1.5"
               >
-                <MessageCircle className="w-4 h-4 fill-slate-950" />
-                Chat Vendor on WhatsApp
+                <MessageCircle className="w-3.5 h-3.5 fill-slate-950" />
+                Chat on WhatsApp
               </button>
             </div>
           </div>
@@ -770,6 +846,231 @@ export function VendorStorefront() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Floate Base Kit v2 Merchant Marketing & Credential Modal */}
+      {isKitModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-4xl w-full p-6 sm:p-8 space-y-6 relative shadow-2xl my-6 max-h-[92vh] overflow-y-auto">
+            <button
+              onClick={() => setIsKitModalOpen(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-2 rounded-full bg-slate-800 transition-colors z-20"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Modal Header */}
+            <div className="space-y-1.5 border-b border-slate-800 pb-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 bg-amber-950/80 border border-amber-800 px-2.5 py-0.5 rounded-full">
+                  Floate Base Kit v2 Marketing Suite
+                </span>
+                <span className="font-mono text-emerald-300 text-xs bg-slate-950 px-2 py-0.5 rounded border border-emerald-800">
+                  {dynamicCredential.fid}
+                </span>
+                <span className="text-slate-400 text-xs">· Dynamic City: <strong className="text-white">{dynamicCredential.city}</strong></span>
+              </div>
+              <h2 className="text-2xl font-black text-white tracking-tight">
+                Official Merchant Credentials & Market Assets
+              </h2>
+              <p className="text-xs text-slate-400">
+                Laminated stall flyers, social badges, certificates, and WhatsApp status promos branded with your store name and exact local market.
+              </p>
+            </div>
+
+            {/* Tab Navigation */}
+            <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/80 pb-3">
+              <button
+                onClick={() => setActiveKitTab('certificate')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  activeKitTab === 'certificate'
+                    ? 'bg-amber-400 text-emerald-950 shadow-md font-black'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                <Award className="w-3.5 h-3.5" />
+                Certificate (1080×1920)
+              </button>
+              <button
+                onClick={() => setActiveKitTab('badge')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  activeKitTab === 'badge'
+                    ? 'bg-amber-400 text-emerald-950 shadow-md font-black'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Badge Card (1080×1080)
+              </button>
+              <button
+                onClick={() => setActiveKitTab('flyer')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  activeKitTab === 'flyer'
+                    ? 'bg-amber-400 text-emerald-950 shadow-md font-black'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                A5 Market Flyer (Stall)
+              </button>
+              <button
+                onClick={() => setActiveKitTab('square')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  activeKitTab === 'square'
+                    ? 'bg-amber-400 text-emerald-950 shadow-md font-black'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Square Boost (1080×1080)
+              </button>
+            </div>
+
+            {/* Quick Share / Bio helper */}
+            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+              <div>
+                <span className="text-slate-400 block font-medium">Public Verification Link:</span>
+                <span className="font-mono text-emerald-400 font-bold break-all">
+                  {window.location.origin}/v/{dynamicCredential.fid}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(`${window.location.origin}/v/${dynamicCredential.fid}`);
+                    setCopiedBio(true);
+                    setTimeout(() => setCopiedBio(false), 2000);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 font-bold transition-colors flex items-center gap-1"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  {copiedBio ? 'Copied Link!' : 'Copy Verify Link'}
+                </button>
+                <a
+                  href={`/v/${dynamicCredential.fid}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition-colors flex items-center gap-1 border border-slate-700"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Open Live
+                </a>
+              </div>
+            </div>
+
+            {/* Active Asset View Component */}
+            <div className="py-2 flex justify-center">
+              {activeKitTab === 'certificate' && (
+                <FloateVerifiedCertificate credential={dynamicCredential} scale={0.75} />
+              )}
+              {activeKitTab === 'badge' && (
+                <FloateBadgeCard credential={dynamicCredential} />
+              )}
+              {activeKitTab === 'flyer' && (
+                <FloateMarketFlyer credential={dynamicCredential} />
+              )}
+              {activeKitTab === 'square' && (
+                <FloateSquareBoost credential={dynamicCredential} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Buyer Verification & Trust Modal */}
+      {isBuyerVerifyModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full p-6 sm:p-8 space-y-6 relative shadow-2xl my-6 max-h-[92vh] overflow-y-auto">
+            <button
+              onClick={() => setIsBuyerVerifyModalOpen(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-2 rounded-full bg-slate-800 transition-colors z-20"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="text-center space-y-2">
+              <div className="mx-auto flex justify-center pb-1">
+                <FloateVerifiedSeal size={72} />
+              </div>
+              <h3 className="text-2xl font-black text-white tracking-tight">
+                Authentic Verified Merchant
+              </h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Verified by FLOATE as a genuine merchant with physical presence and verified WhatsApp order fulfillment.
+              </p>
+            </div>
+
+            {/* Verification Attributes */}
+            <div className="bg-slate-950 border border-emerald-900/50 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between text-xs border-b border-slate-800/80 pb-2">
+                <span className="text-slate-400">Floate ID (FID)</span>
+                <span className="font-mono font-bold text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800">
+                  {dynamicCredential.fid}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs border-b border-slate-800/80 pb-2">
+                <span className="text-slate-400">Business Name</span>
+                <span className="font-bold text-white">{merchant?.businessName || dynamicCredential.biz}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs border-b border-slate-800/80 pb-2">
+                <span className="text-slate-400">Stall / Location</span>
+                <span className="font-medium text-slate-200">{merchantLocation}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs border-b border-slate-800/80 pb-2">
+                <span className="text-slate-400">Verification Tier</span>
+                <span className="font-bold text-emerald-400">Verified Plus Merchant</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Direct WhatsApp</span>
+                <span className="font-mono text-slate-300">+{vendorPhone}</span>
+              </div>
+            </div>
+
+            {/* Trust Checks Badges */}
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-xl flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="text-slate-300 font-medium">Real Stall Inspected</span>
+              </div>
+              <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-xl flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="text-slate-300 font-medium">Contact Confirmed</span>
+              </div>
+              <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-xl flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="text-slate-300 font-medium">Direct WhatsApp Chat</span>
+              </div>
+              <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-xl flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="text-slate-300 font-medium">Founding Merchant</span>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <button
+                onClick={() => {
+                  setIsBuyerVerifyModalOpen(false);
+                  setIsKitModalOpen(true);
+                }}
+                className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 border border-amber-500/30"
+              >
+                <Award className="w-4 h-4" />
+                View Full Certificate
+              </button>
+              <button
+                onClick={() => {
+                  setIsBuyerVerifyModalOpen(false);
+                  handleWhatsAppContact('Verified Storefront Inquiry');
+                }}
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
+              >
+                <MessageCircle className="w-4 h-4 fill-slate-950" />
+                Chat Vendor on WhatsApp
+              </button>
+            </div>
           </div>
         </div>
       )}

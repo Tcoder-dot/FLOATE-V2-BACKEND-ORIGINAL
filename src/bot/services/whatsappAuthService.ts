@@ -1,9 +1,30 @@
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { firestoreDb } from './firestoreService.js';
 import { redisService } from './redisService.js';
 import { normalizePhone } from './sheetsService.js';
 import { sendWhatsAppMessage } from './whatsappService.js';
 import { config } from '../config.js';
+
+export interface WhatsAppDeepLinkToken {
+  id: string;
+  tokenHash: string;
+  type: 'STOREFRONT' | 'CHECKOUT';
+  phone: string;
+  canonicalPhone: string;
+  vendorId?: string;
+  orderId?: string;
+  status: 'PENDING' | 'USED' | 'EXPIRED';
+  createdAt: string;
+  expiresAt: string;
+  usedAt?: string;
+}
+
+const inMemoryAuthTokens = new Map<string, WhatsAppDeepLinkToken>();
+
+function hashToken(rawToken: string): string {
+  return crypto.createHash('sha256').update(rawToken.trim()).digest('hex');
+}
 
 export interface AuthSession {
   challengeCode: string;
@@ -296,11 +317,13 @@ export class WhatsAppAuthService {
         state: vendor.state || 'Lagos',
         city: vendor.city || 'Lagos',
         category: vendor.category || 'General Commerce',
-        isVerified: vendor.isVerified ?? true,
+        isVerified: Boolean(vendor.isVerified ?? true),
         verifiedStatus: vendor.verifiedStatus || 'YES',
         kycTier: vendor.kycTier || 'TIER_1',
-        credit_balance: typeof vendor.credit_balance === 'number' ? vendor.credit_balance : 25,
-        profilePhotoUrl: vendor.profilePhotoUrl || vendor.photoUrl || '',
+        selfieUrl: vendor.profilePhotoUrl || (vendor as any).kycSelfieUrl || (vendor as any).selfieUrl || vendor.photoUrl || '/assets/aistudio/floate-verified-badge.png',
+        avatar_url: vendor.profilePhotoUrl || (vendor as any).kycSelfieUrl || (vendor as any).selfieUrl || vendor.photoUrl || '/assets/aistudio/floate-verified-badge.png',
+        isUnmetered: true,
+        inquiriesFree: true,
       },
       verifiedAt: new Date().toISOString(),
       verifiedPhone: senderE164,
@@ -452,6 +475,304 @@ export class WhatsAppAuthService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Generate Single-Use Storefront Deep-Link Token (10 Min TTL)
+   * POST /auth/whatsapp/generate/storefront
+   */
+  public async generateStorefrontToken(
+    phoneInput: string,
+    vendorId?: string
+  ): Promise<{
+    status: string;
+    wa_token: string;
+    deepLink: string;
+    expires_in_seconds: number;
+    phone: string;
+  }> {
+    const { e164, canonical } = formatPhoneNumber(phoneInput || '');
+    if (!canonical || canonical.length < 10) {
+      throw new Error('Invalid phone number provided for storefront token generation.');
+    }
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashToken(rawToken);
+
+    const ttlSeconds = 600; // 10 minutes TTL
+    const nowMs = Date.now();
+    const expiresAtMs = nowMs + ttlSeconds * 1000;
+
+    const tokenDoc: WhatsAppDeepLinkToken = {
+      id: `watok_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`,
+      tokenHash,
+      type: 'STOREFRONT',
+      phone: e164,
+      canonicalPhone: canonical,
+      vendorId: vendorId || `merchant_${canonical}`,
+      status: 'PENDING',
+      createdAt: new Date(nowMs).toISOString(),
+      expiresAt: new Date(expiresAtMs).toISOString(),
+    };
+
+    inMemoryAuthTokens.set(tokenHash, tokenDoc);
+    await redisService.set(`wa_dl_token:${tokenHash}`, tokenDoc, ttlSeconds);
+
+    const baseUrl = config.appUrl || 'https://www.floate.xyz';
+    const deepLink = `${baseUrl.replace(/\/+$/, '')}/vendor/${canonical}?wa_token=${rawToken}`;
+
+    console.log(`[WhatsApp DeepLink Auth] 🛍️ Generated storefront token for +${canonical}`);
+
+    return {
+      status: 'success',
+      wa_token: rawToken,
+      deepLink,
+      expires_in_seconds: ttlSeconds,
+      phone: e164,
+    };
+  }
+
+  /**
+   * Generate Single-Use Order-Bound Checkout Deep-Link Token (10 Min TTL)
+   * POST /auth/whatsapp/generate/checkout
+   */
+  public async generateCheckoutToken(
+    orderIdInput: string,
+    phoneInput?: string
+  ): Promise<{
+    status: string;
+    wa_token: string;
+    orderId: string;
+    checkoutUrl: string;
+    expires_in_seconds: number;
+  }> {
+    const cleanOrderId = (orderIdInput || '').trim();
+    if (!cleanOrderId) {
+      throw new Error('Order ID is required to generate order-bound checkout token.');
+    }
+
+    let orderDoc: any = null;
+    try {
+      orderDoc = await firestoreDb.getEscrowOrderDoc(cleanOrderId);
+    } catch (e) {
+      console.warn('[WhatsApp Auth] Order lookup notice:', e);
+    }
+
+    const targetPhone = phoneInput || orderDoc?.buyerPhone || orderDoc?.vendorPhone || '2348000000000';
+    const { e164, canonical } = formatPhoneNumber(targetPhone);
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashToken(rawToken);
+
+    const ttlSeconds = 600; // 10 minutes TTL
+    const nowMs = Date.now();
+    const expiresAtMs = nowMs + ttlSeconds * 1000;
+
+    const tokenDoc: WhatsAppDeepLinkToken = {
+      id: `watok_chk_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`,
+      tokenHash,
+      type: 'CHECKOUT',
+      phone: e164,
+      canonicalPhone: canonical,
+      orderId: cleanOrderId,
+      status: 'PENDING',
+      createdAt: new Date(nowMs).toISOString(),
+      expiresAt: new Date(expiresAtMs).toISOString(),
+    };
+
+    inMemoryAuthTokens.set(tokenHash, tokenDoc);
+    await redisService.set(`wa_dl_token:${tokenHash}`, tokenDoc, ttlSeconds);
+
+    const baseUrl = config.appUrl || 'https://www.floate.xyz';
+    const checkoutUrl = `${baseUrl.replace(/\/+$/, '')}/checkout?orderId=${encodeURIComponent(cleanOrderId)}&wa_token=${rawToken}`;
+
+    console.log(`[WhatsApp DeepLink Auth] 💳 Generated order-bound checkout token for order ${cleanOrderId}`);
+
+    return {
+      status: 'success',
+      wa_token: rawToken,
+      orderId: cleanOrderId,
+      checkoutUrl,
+      expires_in_seconds: ttlSeconds,
+    };
+  }
+
+  /**
+   * Exchange Single-Use wa_token for EXISTING Session / JWT
+   * POST /auth/whatsapp/exchange
+   */
+  public async exchangeWhatsAppToken(
+    rawTokenInput: string
+  ): Promise<{
+    success: boolean;
+    token: string | null;
+    refreshToken: string | null;
+    vendor: any | null;
+    order: any | null;
+    type: 'STOREFRONT' | 'CHECKOUT';
+    phone: string;
+    error?: string;
+  }> {
+    const rawToken = (rawTokenInput || '').trim();
+    if (!rawToken) {
+      return {
+        success: false,
+        token: null,
+        refreshToken: null,
+        vendor: null,
+        order: null,
+        type: 'STOREFRONT',
+        phone: '',
+        error: 'wa_token query or body parameter is required.',
+      };
+    }
+
+    const tokenHash = hashToken(rawToken);
+
+    // 1. In-memory lookup
+    let tokenDoc = inMemoryAuthTokens.get(tokenHash);
+
+    // 2. Redis fallback
+    if (!tokenDoc) {
+      tokenDoc = await redisService.get<WhatsAppDeepLinkToken>(`wa_dl_token:${tokenHash}`);
+    }
+
+    if (!tokenDoc) {
+      return {
+        success: false,
+        token: null,
+        refreshToken: null,
+        vendor: null,
+        order: null,
+        type: 'STOREFRONT',
+        phone: '',
+        error: 'Invalid, used, or non-existent WhatsApp token.',
+      };
+    }
+
+    const nowMs = Date.now();
+    const expiresMs = new Date(tokenDoc.expiresAt).getTime();
+
+    if (tokenDoc.status !== 'PENDING' || expiresMs <= nowMs) {
+      tokenDoc.status = 'EXPIRED';
+      inMemoryAuthTokens.set(tokenHash, tokenDoc);
+      return {
+        success: false,
+        token: null,
+        refreshToken: null,
+        vendor: null,
+        order: null,
+        type: tokenDoc.type,
+        phone: tokenDoc.phone,
+        error: 'WhatsApp token has expired or was already used.',
+      };
+    }
+
+    // ATOMIC SINGLE-USE ENFORCEMENT: Immediately mark as USED
+    tokenDoc.status = 'USED';
+    tokenDoc.usedAt = new Date().toISOString();
+    inMemoryAuthTokens.set(tokenHash, tokenDoc);
+    await redisService.set(`wa_dl_token:${tokenHash}`, tokenDoc, 600);
+
+    // Retrieve vendor profile for the canonical phone
+    let vendor = await firestoreDb.getMerchant(tokenDoc.canonicalPhone);
+    if (!vendor) {
+      vendor = {
+        id: tokenDoc.canonicalPhone,
+        businessName: 'Verified Merchant',
+        whatsapp: tokenDoc.canonicalPhone,
+        isVerified: true,
+        credit_balance: 25,
+        status: 'ACTIVE',
+        updatedAt: new Date().toISOString(),
+      } as any;
+    }
+
+    // Generate EXISTING JWT session
+    const accessToken = jwt.sign(
+      {
+        sub: tokenDoc.canonicalPhone,
+        phone: tokenDoc.phone,
+        vendorId: vendor.id,
+        businessName: vendor.businessName,
+        role: vendor.isVerified ? 'VERIFIED_MERCHANT' : 'MERCHANT',
+        iss: 'FLOATE_AUTH_ENGINE',
+      },
+      this.jwtSecret,
+      { expiresIn: '24h' }
+    );
+
+    const refreshToken = jwt.sign(
+      {
+        sub: tokenDoc.canonicalPhone,
+        type: 'refresh_token',
+        iss: 'FLOATE_AUTH_ENGINE',
+      },
+      this.jwtSecret,
+      { expiresIn: '30d' }
+    );
+
+    // If CHECKOUT token, retrieve specific order bound to this exact token
+    let order: any = null;
+    if (tokenDoc.type === 'CHECKOUT' && tokenDoc.orderId) {
+      try {
+        order = await firestoreDb.getEscrowOrderDoc(tokenDoc.orderId);
+      } catch (e) {
+        console.warn('[WhatsApp Auth Exchange] Order fetch warning:', e);
+      }
+    }
+
+    console.log(`[WhatsApp Auth Exchange] 🎉 Successfully exchanged wa_token for +${tokenDoc.canonicalPhone} (Type: ${tokenDoc.type})`);
+
+    return {
+      success: true,
+      token: accessToken,
+      refreshToken,
+      vendor,
+      order,
+      type: tokenDoc.type,
+      phone: tokenDoc.phone,
+    };
+  }
+
+  /**
+   * Express Middleware to recognize WhatsApp-established sessions or tokens
+   */
+  public expressWhatsAppAuthMiddleware(req: any, res: any, next: any) {
+    const authHeader = req.headers.authorization || '';
+    const queryToken = (req.query.wa_token || req.query.token || '').toString();
+    const headerWaToken = (req.headers['x-wa-token'] || req.headers['x-wa-session'] || '').toString();
+
+    const rawJwt = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+
+    if (rawJwt) {
+      const decoded = whatsappAuthService.verifyJwtToken(rawJwt);
+      if (decoded) {
+        req.user = decoded;
+        req.vendor = { id: decoded.vendorId || decoded.sub, phone: decoded.phone };
+        return next();
+      }
+    }
+
+    const effectiveWaToken = queryToken || headerWaToken;
+    if (effectiveWaToken) {
+      whatsappAuthService
+        .exchangeWhatsAppToken(effectiveWaToken)
+        .then((result) => {
+          if (result.success && result.token) {
+            const decoded = whatsappAuthService.verifyJwtToken(result.token);
+            req.user = decoded;
+            req.vendor = result.vendor;
+            req.order = result.order;
+            req.waExchangeResult = result;
+          }
+          next();
+        })
+        .catch(() => next());
+      return;
+    }
+
+    next();
   }
 }
 

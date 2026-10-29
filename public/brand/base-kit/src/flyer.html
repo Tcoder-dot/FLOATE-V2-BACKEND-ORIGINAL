@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../tokens/tokens.css">
+<style>
+/* A5 portrait at 148x210mm -> 874x1240 css px, rendered @2x */
+#c{width:874px;height:1240px;position:relative;overflow:hidden;background:var(--paper)}
+.head{position:absolute;inset:0 0 auto 0;height:720px;background:radial-gradient(900px 700px at 20% 0%,#2E7D32 0%,var(--purple) 45%,var(--deep) 100%);border-radius:0 0 60px 60px}
+.brand{position:absolute;top:44px;left:56px;display:flex;align-items:center;gap:14px;color:var(--gold);font-weight:700;font-size:34px;letter-spacing:6px}
+.brand img{height:50px}
+.cities{position:absolute;top:52px;right:56px;color:#fff;opacity:.8;font-size:17px;letter-spacing:3px;font-weight:600}
+.pidgin{position:absolute;top:150px;left:56px;color:var(--gold);font-size:30px;font-weight:600}
+h1{position:absolute;top:196px;left:52px;right:52px;color:#fff;font-size:78px;line-height:1.0;font-weight:700;letter-spacing:-2px}
+h1 em{font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;color:var(--gold);letter-spacing:0}
+.sub{position:absolute;top:470px;left:56px;right:330px;color:#E3F1E4;font-size:24px;line-height:1.4}
+.chat{position:absolute;top:455px;right:44px;width:270px;background:#fff;border-radius:22px;padding:16px;box-shadow:0 20px 40px rgba(0,0,0,.3);transform:rotate(3deg)}
+.chat .hd{display:flex;align-items:center;gap:10px;padding-bottom:10px;border-bottom:1px solid #eee;font-weight:700;font-size:16px}
+.chat .hd i{width:32px;height:32px;border-radius:50%;background:var(--purple) url('../layers/icon-yellow.png') center/62% no-repeat}
+.b{margin-top:10px;font-size:15px;line-height:1.3;padding:9px 12px;border-radius:14px;max-width:88%}
+.b.me{background:#DCF8C6;margin-left:auto;border-bottom-right-radius:4px}
+.b.fl{background:var(--lilac);border-bottom-left-radius:4px}
+.qrwrap{position:absolute;top:770px;left:56px;width:330px;height:330px;background:#fff;border-radius:28px;border:4px solid var(--deep);padding:22px;box-shadow:0 12px 30px rgba(14,59,18,.15)}
+.qrwrap img{width:100%;height:100%;image-rendering:pixelated}
+.qrlabel{position:absolute;top:1110px;left:56px;width:330px;text-align:center;font-weight:700;color:var(--deep);font-size:21px;letter-spacing:2px}
+.steps{position:absolute;top:770px;left:420px;right:50px}
+.st{display:flex;gap:16px;align-items:flex-start;margin-bottom:26px}
+.st b{flex:none;width:50px;height:50px;border-radius:50%;background:var(--gold);color:var(--deep);font-size:24px;display:flex;align-items:center;justify-content:center}
+.st div{font-size:22px;line-height:1.3;color:#2F3B2F}
+.st div strong{display:block;color:var(--ink);font-size:25px}
+.wa{position:absolute;bottom:56px;left:420px;right:50px;background:var(--wa);color:var(--gold);border-radius:18px;padding:16px 18px;font-weight:700;font-size:21px;display:flex;align-items:center;gap:12px}
+.wa svg{width:34px;height:34px;flex:none}
+.foot{position:absolute;bottom:20px;left:56px;right:50px;display:flex;justify-content:space-between;font-size:15px;color:#6B7A6B;font-weight:600;letter-spacing:1px}
+</style></head><body><div id="c">
+<div class="head"></div>
+<div class="brand"><img src="../layers/wordmark-yellow.png"></div>
+<div class="cities">ONITSHA · ENUGU · OWERRI</div>
+<div class="pidgin" data-f="pidgin">Wetin you dey find? ✦</div>
+<h1 data-f="headline" data-html>Tell Floate what you need. Get <em>matched</em> on WhatsApp.</h1>
+<div class="sub" data-f="sub">Type it or send a voice note, in English or Pidgin. We connect you to verified sellers in the market. Free.</div>
+<div class="chat">
+ <div class="hd"><i></i>FLOATE AI ✓</div>
+ <div class="b me">I need Ankara fabric, 6 yards, under ₦15k</div>
+ <div class="b fl">Found 3 verified sellers for you in Onitsha Main Market 👇</div>
+</div>
+<div class="qrwrap"><img id="qr" data-img="qr" src="../layers/qr-buyer-whatsapp.png"></div>
+<div class="qrlabel">SCAN TO START ON WHATSAPP</div>
+<div class="steps">
+ <div class="st"><b>1</b><div><strong>Scan the code</strong>WhatsApp opens with Floate</div></div>
+ <div class="st"><b>2</b><div><strong>Say wetin you need</strong>Item, budget, your market</div></div>
+ <div class="st"><b>3</b><div><strong>Chat verified sellers</strong>Real stalls, real prices</div></div>
+</div>
+<div class="wa"><svg viewBox="0 0 24 24" fill="#FFC107"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .2-3.3-.7-2.8-1.1-4.5-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.8s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.6-.4.4c-.1.2-.3.3-.1.6.2.3.8 1.4 1.8 2.2 1.2 1.1 2.2 1.4 2.5 1.6.3.1.5.1.6-.1l.9-1c.2-.3.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.7-.1 1.3z"/></svg>+234 911 516 2081</div>
+<div class="foot"><span>floate.xyz</span></div>
+</div>
+<style>body.blank .chat{display:none}</style><script src="fill.js"></script></body></html>

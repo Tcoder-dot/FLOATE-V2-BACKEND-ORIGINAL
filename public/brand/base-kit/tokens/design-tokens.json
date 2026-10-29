@@ -1,0 +1,82 @@
+{
+  "$meta": {
+    "name": "Floate design tokens",
+    "version": "1.0.0",
+    "date": "2026-10-27",
+    "source": "design-handoff/ (Design Brief v2, official green/yellow) normalised by Backend",
+    "note": "Legacy CSS var names in design-handoff/src/base.css (--purple, --violet, --gold, --lilac, --wa) map to the semantic names below. Use these names going forward."
+  },
+  "color": {
+    "brand": {
+      "green":        { "value": "#1B5E20", "legacy": "--purple", "use": "Primary. Fields, CTA buttons, headings on cream" },
+      "yellow":       { "value": "#FFC107", "legacy": "--gold / --yellow", "use": "Brand marks, accents, text on green" }
+    },
+    "green": {
+      "900": { "value": "#0E3B12", "legacy": "--deep",   "use": "Gradient end, outlines, dark text on yellow" },
+      "800": { "value": "#145018", "use": "Photo slot fill on square" },
+      "700": { "value": "#1B5E20", "use": "= brand.green" },
+      "600": { "value": "#2E7D32", "legacy": "--violet", "use": "Gradient highlight, chip text" }
+    },
+    "neutral": {
+      "paper":    { "value": "#FFFDF5", "legacy": "--paper", "use": "Reading panels, certificate card, bottom bars" },
+      "chip":     { "value": "#FFF4CC", "legacy": "--lilac", "use": "Chip / tag background" },
+      "ink":      { "value": "#10200F", "legacy": "--ink",   "use": "Body text on paper" },
+      "text-2":   { "value": "#2F3B2F", "use": "Long body copy on paper" },
+      "text-3":   { "value": "#4F5E4F", "use": "Secondary copy on paper" },
+      "muted":    { "value": "#6B7A6B", "use": "Labels, meta, footers" },
+      "on-green": { "value": "#E3F1E4", "use": "Body copy on green field" },
+      "white":    { "value": "#FFFFFF" }
+    },
+    "chat": { "bubble-out": { "value": "#DCF8C6", "use": "Mock WhatsApp outgoing bubble only" } }
+  },
+  "gradient": {
+    "field-status":  { "value": "radial-gradient(1200px 900px at 50% -10%, #2E7D32 0%, #1B5E20 40%, #0E3B12 85%)", "use": "1080x1920 backgrounds" },
+    "field-square":  { "value": "radial-gradient(1000px 800px at 85% 10%, #2E7D32 0%, #1B5E20 40%, #0E3B12 90%)", "use": "1080x1080 backgrounds" },
+    "field-flyer":   { "value": "radial-gradient(900px 700px at 20% 0%, #2E7D32 0%, #1B5E20 45%, #0E3B12 100%)", "use": "A5 flyer header" },
+    "seal":          { "value": "radial-gradient(circle at 35% 30%, #2E7D32 0%, #1B5E20 45%, #0E3B12 100%)", "use": "Verified seal centre" },
+    "gold-rule":     { "value": "linear-gradient(90deg, transparent, #FFC107, transparent)", "use": "Divider under merchant name" }
+  },
+  "font": {
+    "family": {
+      "sans":  { "value": "'Instrument Sans', system-ui, sans-serif", "files": ["fonts/InstrumentSans-Variable.ttf", "fonts/InstrumentSans-Italic-Variable.ttf"] },
+      "serif": { "value": "'Instrument Serif', Georgia, serif", "files": ["fonts/InstrumentSerif-Regular.ttf", "fonts/InstrumentSerif-Italic.ttf"], "use": "Italic, one yellow emphasis word per headline" }
+    },
+    "weight": { "regular": 400, "medium": 500, "semibold": 600, "bold": 700 },
+    "license": "SIL OFL 1.1 (fonts/OFL.txt). Self-hosted: never load from Google Fonts at render time."
+  },
+  "type-scale": {
+    "_unit": "px at 1x canvas (1080 wide). Flyer values are css px at 874 wide, rendered @2x.",
+    "status": { "brand-lockup": 78, "kicker": 28, "headline": 96, "name": 76, "biz": 36, "body": 29, "chip": 24, "meta-label": 22, "meta-value": 32, "footer": 34 },
+    "square": { "brand-lockup": 60, "tag": 24, "headline": 88, "body": 30, "cta": 34, "url": 28 },
+    "flyer":  { "brand-lockup": 50, "pidgin": 30, "headline": 78, "sub": 24, "step-title": 25, "step-body": 22, "cta": 21, "foot": 15 },
+    "letter-spacing": { "kicker": "9px", "tag": "3px", "headline": "-2px", "meta-label": "3px" },
+    "line-height": { "headline": 1.0, "body": 1.4 }
+  },
+  "space": {
+    "safe-margin": { "status": 70, "square": 72, "flyer": 56 },
+    "card-inset-status": { "top": 250, "bottom": 250, "left": 70, "right": 70 },
+    "card-padding": 70,
+    "gap": { "xs": 8, "sm": 14, "md": 24, "lg": 40, "xl": 70 }
+  },
+  "radius": { "chip": 40, "button": 22, "panel": 28, "card": 36, "frame-outer": 24, "frame-inner": 18, "pill": 9999 },
+  "border": { "gold-frame": "3px solid #FFC107", "inner-frame": "1.5px solid rgba(27,94,32,.25)", "meta-divider": "2px dashed rgba(27,94,32,.25)" },
+  "shadow": { "card": "0 30px 80px rgba(0,0,0,.35)", "panel": "0 12px 30px rgba(14,59,18,.15)", "float": "0 20px 40px rgba(0,0,0,.3)" },
+  "canvas": {
+    "status":  { "w": 1080, "h": 1920, "scale": 1 },
+    "square":  { "w": 1080, "h": 1080, "scale": 1 },
+    "flyer-a5":{ "w": 874,  "h": 1240, "scale": 2, "export": "1748x2480" },
+    "seal":    { "w": 1080, "h": 1080, "transparent": true, "sizes": [1080, 512, 256, 128, 64] }
+  },
+  "contact": {
+    "whatsapp-bot": "+234 911 516 2081",
+    "whatsapp-link": "https://wa.me/2349115162081?text=Hi%20Floate%2C%20I%20dey%20find%20",
+    "site": "floate.xyz"
+  },
+  "rules": [
+    "Never redraw the logo; use layers/wordmark-* and layers/icon-* cut-outs.",
+    "Yellow on green for brand moments; green on cream for reading.",
+    "One headline, one CTA, one QR or number per piece.",
+    "WhatsApp CTAs are Floate Green with yellow text/icon, never WhatsApp green.",
+    "Certificate claims must match what verification actually checks (currently: real stall, contact confirmed)."
+  ]
+}

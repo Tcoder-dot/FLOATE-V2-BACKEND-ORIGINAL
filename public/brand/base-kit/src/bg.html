@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../tokens/tokens.css">
+<style>
+#c{position:relative;overflow:hidden}
+.status{width:1080px;height:1920px;background:var(--fl-field-status)}
+.square{width:1080px;height:1080px;background:var(--fl-field-square)}
+.flyer{width:874px;height:1240px;background:var(--fl-paper)}
+.flyer .head{position:absolute;inset:0 0 auto 0;height:720px;background:var(--fl-field-flyer);border-radius:0 0 60px 60px}
+.paper-status{width:1080px;height:1920px;background:var(--fl-paper)}
+.wm{position:absolute;display:none}
+.logo .wm{display:block}
+.status .wm{top:95px;left:50%;transform:translateX(-50%);height:78px}
+.square .wm{top:64px;left:72px;height:60px}
+.flyer .wm{top:44px;left:56px;height:50px}
+.paper-status .wm{top:95px;left:50%;transform:translateX(-50%);height:78px}
+.ghost{position:absolute;display:none;opacity:.07}
+.ghosted .ghost{display:block}
+.square .ghost{right:-60px;bottom:140px;width:560px}
+.status .ghost{right:-80px;bottom:200px;width:760px}
+</style></head><body>
+<div id="c"><div class="head"></div><img class="ghost" src="../layers/icon-yellow.png"><img class="wm" src="../layers/wordmark-yellow.png"></div>
+<script>
+const p=new URLSearchParams(location.search),c=document.getElementById('c');
+c.className=(p.get('v')||'status')+(p.get('logo')==='1'?' logo':'')+(p.get('ghost')==='1'?' ghosted':'');
+if(p.get('v')==='paper-status'){c.querySelector('.wm').src='../layers/wordmark-green.png';}
+window.__ready=true;
+</script></body></html>

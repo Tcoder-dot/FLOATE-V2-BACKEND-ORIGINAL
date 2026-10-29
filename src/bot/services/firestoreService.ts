@@ -211,6 +211,13 @@ export interface MerchantDoc {
   addressType?: 'Shop Address' | 'Home Address' | string;
   addressDetail?: string;
   cacInfo?: string;
+  photoUrl?: string;
+  isVerifiedPlus?: boolean;
+  boostCredits?: number;
+  certificateId?: string;
+  certificateUrl?: string;
+  certificateIssuedAt?: string;
+  verifiedPlusExpiresAt?: string;
   registeredAt?: string;
   updatedAt: string;
 }
@@ -228,7 +235,7 @@ export interface AdDoc {
   id: string; // e.g. ad_123456
   merchantPhone?: string;
   merchantName?: string;
-  adType: 'BUSINESS_AD' | 'PRODUCT_AD' | 'SALES_AD' | 'BRAND_SPONSOR';
+  adType: 'BUSINESS_AD' | 'PRODUCT_AD' | 'SALES_AD' | 'BRAND_SPONSOR' | 'CATEGORY_SPONSOR' | 'HERO_BANNER';
   headline: string;
   description?: string;
   offerText?: string;
@@ -241,7 +248,7 @@ export interface AdDoc {
   impressions: number;
   clicks: number;
   budget?: number;
-  submittedVia: 'WHATSAPP' | 'TELEGRAM' | 'ADMIN_MANUAL' | 'WEB';
+  submittedVia: 'WHATSAPP' | 'TELEGRAM' | 'ADMIN_MANUAL' | 'WEB' | 'FLW_PAYMENT' | 'FLW_BRAND_CHECKOUT';
   createdAt: string;
   approvedAt?: string;
   updatedAt: string;
@@ -5006,6 +5013,91 @@ export class FirestoreService {
       isZeroBalance: true,
       leadId,
     };
+  }
+
+  // =========================================================================
+  // WHATSAPP AUTH TOKENS & ORDER SYNC METHODS
+  // =========================================================================
+
+  public async saveWhatsAppAuthToken(tokenDoc: any): Promise<void> {
+    try {
+      const tokenRef = doc(db, 'whatsapp_auth_tokens', tokenDoc.id);
+      await setDoc(tokenRef, this.sanitizeForFirestore(tokenDoc));
+    } catch (err) {
+      console.warn('[Firestore] saveWhatsAppAuthToken error:', err);
+    }
+  }
+
+  public async getWhatsAppAuthTokenByHash(tokenHash: string): Promise<any | null> {
+    try {
+      const q = query(
+        collection(db, 'whatsapp_auth_tokens'),
+        where('token_hash', '==', tokenHash),
+        limit(1)
+      );
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        return snapshot.docs[0].data();
+      }
+    } catch (err) {
+      console.warn('[Firestore] getWhatsAppAuthTokenByHash error:', err);
+    }
+    return null;
+  }
+
+  public async markWhatsAppAuthTokenUsed(id: string, updateData: { usedAt: string; ip?: string | null; ua?: string | null }): Promise<void> {
+    try {
+      const tokenRef = doc(db, 'whatsapp_auth_tokens', id);
+      await updateDoc(tokenRef, this.sanitizeForFirestore({
+        used_at: updateData.usedAt,
+        ip: updateData.ip || null,
+        ua: updateData.ua || null,
+      }));
+    } catch (err) {
+      console.warn('[Firestore] markWhatsAppAuthTokenUsed error:', err);
+    }
+  }
+
+  public async invalidateWhatsAppAuthTokensByOrderId(orderId: string): Promise<void> {
+    try {
+      const q = query(
+        collection(db, 'whatsapp_auth_tokens'),
+        where('order_id', '==', orderId)
+      );
+      const snapshot = await getDocs(q);
+      const nowIso = new Date().toISOString();
+      for (const docSnap of snapshot.docs) {
+        if (!docSnap.data().used_at) {
+          await updateDoc(docSnap.ref, { used_at: nowIso });
+        }
+      }
+    } catch (err) {
+      console.warn('[Firestore] invalidateWhatsAppAuthTokensByOrderId error:', err);
+    }
+  }
+
+  public async savePaymentRecord(paymentRecord: any): Promise<void> {
+    try {
+      const payRef = doc(db, 'payments', paymentRecord.id);
+      await setDoc(payRef, this.sanitizeForFirestore(paymentRecord));
+    } catch (err) {
+      console.warn('[Firestore] savePaymentRecord error:', err);
+    }
+  }
+
+  public async getEscrowOrdersForVendor(vendorId: string): Promise<any[]> {
+    try {
+      const cleanVendor = normalizePhone(vendorId);
+      const q = query(
+        collection(db, 'escrow_orders'),
+        where('vendorPhone', '==', cleanVendor)
+      );
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map((docSnap) => docSnap.data());
+    } catch (err) {
+      console.warn('[Firestore] getEscrowOrdersForVendor error:', err);
+      return [];
+    }
   }
 }
 

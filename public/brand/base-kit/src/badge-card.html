@@ -1,0 +1,49 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../tokens/tokens.css">
+<style>
+/* 1080x1080 personalised Verified badge card (WhatsApp status / IG / profile share). Fields: biz, loc, fid, link, qr. ?blank=1 = base template. */
+#c{width:1080px;height:1080px;position:relative;overflow:hidden;background:var(--fl-field-square)}
+.wm{position:absolute;top:64px;left:72px;height:60px}
+.tag{position:absolute;top:70px;right:72px;background:var(--fl-yellow);color:var(--fl-green-900);font-weight:700;font-size:24px;letter-spacing:3px;padding:12px 24px;border-radius:40px}
+.avatar{position:absolute!important;top:175px;left:72px;width:450px;height:450px;--ring:12px;--gap:8px;--mini:170px;--mo:-6px;--ini:170px}
+.avatar{position:relative;flex:none}
+.avatar .ring{width:100%;height:100%;border-radius:50%;padding:var(--ring);background:conic-gradient(from 200deg,#FFC107,#FFE082,#FFC107,#C79100,#FFC107);box-shadow:0 14px 34px rgba(14,59,18,.35)}
+.avatar .ph{width:100%;height:100%;border-radius:50%;overflow:hidden;border:var(--gap) solid var(--fl-paper);background:radial-gradient(circle at 35% 30%,#2E7D32,#1B5E20 45%,#0E3B12);display:flex;align-items:center;justify-content:center;position:relative}
+.avatar .ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.avatar .ph span{color:var(--fl-yellow);font-weight:700;letter-spacing:2px;font-size:var(--ini)}
+.avatar .mini{position:absolute;right:var(--mo);bottom:var(--mo);width:var(--mini);height:var(--mini);filter:drop-shadow(0 6px 10px rgba(0,0,0,.35))}
+.avatar.has-photo .ph span{display:none}
+body.blank .avatar .ph span{display:none}
+
+.right{position:absolute;top:200px;left:580px;right:72px;color:#fff}
+.right .k{color:var(--fl-yellow);font-size:26px;letter-spacing:6px;font-weight:600}
+.right .biz{margin-top:18px;font-size:60px;line-height:1.05;font-weight:700;min-height:64px}
+.right .biz.long{font-size:46px}
+.right .loc{margin-top:16px;font-size:28px;color:var(--fl-on-green);min-height:34px}
+.right .fidl{margin-top:44px;font-size:20px;letter-spacing:3px;color:var(--fl-on-green);opacity:.8;font-weight:600}
+.right .fid{margin-top:6px;font-size:36px;font-weight:700;color:var(--fl-yellow);letter-spacing:1px;min-height:44px}
+.bar{position:absolute;left:0;right:0;bottom:0;height:320px;background:var(--fl-paper);display:flex;align-items:center;padding:0 72px;gap:40px}
+.qrbox{width:220px;height:220px;background:#fff;border:4px solid var(--fl-green-900);border-radius:22px;padding:12px;flex:none}
+.qrbox img{width:100%;height:100%;image-rendering:pixelated;display:block}
+.cta{font-size:40px;font-weight:700;color:var(--fl-green-900);line-height:1.1}
+.cta em{font-family:var(--fl-font-serif);font-weight:400;font-style:italic;color:var(--fl-green-600)}
+.cta span{display:block;margin-top:14px;font-size:28px;font-weight:600;color:var(--fl-muted);min-height:34px}
+</style></head><body><div id="c">
+<img class="wm" src="../layers/wordmark-yellow.png">
+<div class="tag">VERIFIED ON FLOATE</div>
+<div class="avatar" id="avatar"><div class="ring"><div class="ph"><img data-img="photo" alt=""><span data-f="initials">CO</span></div></div><img class="mini" src="../layers/seal-verified-256.png"></div>
+<div class="right">
+ <div class="k">VERIFIED MERCHANT</div>
+ <div class="biz" id="biz" data-f="biz">Chidi Fabrics &amp; Lace</div>
+ <div class="loc" data-f="loc">Onitsha Main Market, Anambra</div>
+ <div class="fidl">FLOATE ID</div>
+ <div class="fid" data-f="fid">FLT-ONT-00142</div>
+</div>
+<div class="bar">
+ <div class="qrbox"><img data-img="qr" src="../layers/qr-placeholder.png"></div>
+ <div class="cta">Scan to <em>check</em> I'm real.<span data-f="link">floate.xyz/v/FLT-ONT-00142</span></div>
+</div>
+</div>
+<script src="fill.js"></script><script>(function(){const p=new URLSearchParams(location.search),a=document.getElementById('avatar'),i=a.querySelector('img[data-img=photo]');
+if(p.get('photo')&&p.get('blank')!=='1'){a.classList.add('has-photo');}else{i.style.display='none';}})();</script>
+<script>const b=document.getElementById('biz'); if(b.textContent.length>20) b.classList.add('long');</script>
+</body></html>

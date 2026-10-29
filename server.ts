@@ -22,12 +22,16 @@ import {
   handleExternalGpsVerification,
   getGpsVerificationRecord,
   generateGpsVerificationToken,
+  sendMerchantVisualAssetsToWhatsApp,
 } from './src/bot/services/whatsappService.js';
 import { saveCatalogMedia } from './src/bot/services/mediaStorageService.js';
 import { getRelaySessionById } from './src/bot/services/whatsappStateManager.js';
 import { monnifyService } from './src/bot/services/monnifyService.js';
 import { nombaService } from './src/bot/services/nombaService.js';
 import { flutterwaveService, FLOATE_CREDIT_PACKAGES, calculateCustomCredits, getWhatsAppRedirectUrl } from './src/bot/services/flutterwaveService.js';
+import { monetizationService, isLaunchPricingActive } from './src/bot/services/monetizationService.js';
+import { findCredentialByFid, SAMPLE_CREDENTIALS, createCredentialForMerchant } from './src/bot/services/credentialService.js';
+import { renderCredentialPng, resolveCredential } from './src/bot/services/credentialAssetRenderer.js';
 import {
   generateSafePayReceiptSvg,
   generateSafePaySuccessSvg,
@@ -572,42 +576,72 @@ async function startServer() {
       }
     }
 
+    // Check if payment was for merchant credentials / Verified Plus
+    let cred = null;
+    try {
+      const fidParam = (req.query.fid as string) || (ref.startsWith('FLT-') ? ref : '');
+      if (fidParam) {
+        cred = await resolveCredential(fidParam);
+      } else {
+        const phoneMatch = ref.match(/(234\d{10}|0[789]\d{9})/);
+        if (phoneMatch) {
+          cred = await resolveCredential(phoneMatch[1]);
+        }
+      }
+    } catch (e) {
+      console.warn('[Callback Credential Resolution Notice]:', e);
+    }
+
+    const isCredentialOrder = Boolean(cred || ref.includes('VERI') || ref.includes('TIER'));
+
     res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Payment Successful • Floate SafePay</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>${isCredentialOrder ? 'Verified Assets Ready • Floate' : 'Payment Successful • Floate SafePay'}</title>
   <link rel="icon" type="image/png" href="/icon-192.png">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: #0A1118; color: #F3F4F6; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-    .card { background: #131E29; border: 1px solid #1F3042; border-radius: 18px; max-width: 440px; width: 100%; padding: 32px 24px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
-    .badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.15); color: #10B981; padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; margin-bottom: 18px; border: 1px solid rgba(16, 185, 129, 0.3); }
-    h1 { font-size: 24px; font-weight: 700; margin-bottom: 10px; color: #FFFFFF; }
-    p { font-size: 15px; color: #9CA3AF; line-height: 1.55; margin-bottom: 22px; }
-    .ref-box { background: #0B131D; border: 1px dashed #2A3F55; border-radius: 12px; padding: 12px; margin-bottom: 24px; font-family: monospace; font-size: 14px; color: #60A5FA; }
-    .btn-wa { display: flex; align-items: center; justify-content: center; gap: 10px; background: #25D366; color: #000000; font-weight: 700; font-size: 16px; padding: 14px 20px; border-radius: 12px; text-decoration: none; transition: transform 0.15s ease, background 0.15s ease; }
-    .btn-wa:hover { background: #20BA5A; transform: translateY(-1px); }
-    .notice { font-size: 13px; color: #6B7280; margin-top: 18px; }
+    body { background: #07170A; color: #F3F4F6; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .card { background: #0E2812; border: 1px solid rgba(255, 193, 7, 0.3); border-radius: 20px; max-width: 440px; width: 100%; padding: 28px 22px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
+    .badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(255, 193, 7, 0.15); color: #FFC107; padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 700; margin-bottom: 16px; border: 1px solid rgba(255, 193, 7, 0.3); }
+    h1 { font-size: 22px; font-weight: 800; margin-bottom: 10px; color: #FFFFFF; }
+    p { font-size: 14px; color: #A7F3D0; line-height: 1.55; margin-bottom: 18px; }
+    .ref-box { background: #061A0A; border: 1px dashed #2E7D32; border-radius: 12px; padding: 10px; margin-bottom: 18px; font-family: monospace; font-size: 13px; color: #FFC107; }
+    .btn-action { display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; font-size: 14px; padding: 12px 16px; border-radius: 12px; text-decoration: none; transition: transform 0.15s ease; margin-bottom: 10px; }
+    .btn-gold { background: #FFC107; color: #0A2A0D; }
+    .btn-green { background: #1B5E20; color: #A7F3D0; border: 1px solid #2E7D32; }
+    .btn-wa { background: #25D366; color: #000000; font-size: 15px; margin-top: 8px; }
+    .notice { font-size: 12px; color: #6EE7B7; margin-top: 14px; opacity: 0.8; }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="badge">🔒 Floate SafePay Escrow</div>
-    <h1>Payment Confirmed!</h1>
-    <p>Your funds are securely held in escrow. We have automatically notified the vendor to proceed with your order.</p>
-    ${ref ? `<div class="ref-box">Order Ref: <strong>${ref}</strong></div>` : ''}
-    <a href="${whatsappUrl}" class="btn-wa">
+    <div class="badge">🛡️ ${isCredentialOrder ? 'Floate Verified Assets' : 'Floate SafePay Escrow'}</div>
+    <h1>${isCredentialOrder ? 'Verification Package Activated!' : 'Payment Confirmed!'}</h1>
+    <p>${isCredentialOrder ? 'Your official Floate Verification credentials are ready. You can download high-resolution PNGs directly below:' : 'Your funds are securely held in escrow. We have notified the vendor to proceed with your order.'}</p>
+    ${ref ? `<div class="ref-box">Reference: <strong>${ref}</strong></div>` : ''}
+
+    ${cred ? `
+      <div style="margin-bottom: 16px;">
+        <a href="/api/credentials/${cred.fid}/download/badge" class="btn-action btn-gold">
+          <span>📥 Download 1080p Badge Card (PNG)</span>
+        </a>
+        <a href="/api/credentials/${cred.fid}/download/certificate" class="btn-action btn-green">
+          <span>📜 Download Official Certificate (PNG)</span>
+        </a>
+        <a href="/api/credentials/${cred.fid}/download/flyer" class="btn-action btn-green">
+          <span>🏷️ Download A5 Market Flyer (PNG)</span>
+        </a>
+      </div>
+    ` : ''}
+
+    <a href="${whatsappUrl}" class="btn-action btn-wa">
       <span>💬 Return to WhatsApp</span>
     </a>
-    <p class="notice">A confirmation message has already been sent to your WhatsApp number. You can safely close this page.</p>
+    <p class="notice">A confirmation message and receipt have also been sent to your WhatsApp number.</p>
   </div>
-  <script>
-    setTimeout(() => {
-      window.location.href = "${whatsappUrl}";
-    }, 2800);
-  </script>
 </body>
 </html>`);
   });
@@ -848,6 +882,33 @@ async function startServer() {
               });
             }
           }
+
+          // 3. Floate Launch Monetization Packages (Verified Plus ₦5,000, Boosts ₦1,000, 5-Boosts ₦4,000, Sponsored ₦10,000, Brand ₦75,000)
+          if (
+            txRef.startsWith('FLW_VERI_') ||
+            txRef.startsWith('FLW_PROD_') ||
+            txRef.startsWith('FLW_5-BO_') ||
+            txRef.startsWith('FLW_SPON_') ||
+            txRef.startsWith('FLW_BRAN_') ||
+            txRef.startsWith('FLW_TIER_') ||
+            data?.meta?.packageId
+          ) {
+            const customerPhone = data?.meta?.merchantPhone || data?.customer?.phone_number || data?.customer?.phonenumber || '2348000000000';
+            const fulfillment = await monetizationService.handleSuccessfulPaymentFulfillment({
+              txRef,
+              amountPaid,
+              merchantPhone: customerPhone,
+              packageId: data?.meta?.packageId,
+              meta: data?.meta,
+            });
+
+            return res.json({
+              status: 'success',
+              txRef,
+              amountPaid,
+              ...fulfillment,
+            });
+          }
         }
 
         // Handle failed or abandoned payment events
@@ -1007,6 +1068,284 @@ async function startServer() {
       packages: FLOATE_CREDIT_PACKAGES,
     });
   });
+
+  // 3c-1f. Floate Launch Monetization Tiers (Launch valid until 20 Nov 2026, then standard)
+  app.get(['/api/v1/pricing/tiers', '/api/pricing/tiers'], (_req, res) => {
+    try {
+      const data = monetizationService.getPricingTiers();
+      res.json({
+        success: true,
+        ...data,
+      });
+    } catch (err: any) {
+      console.error('[Pricing Tiers Error]:', err);
+      res.status(500).json({ success: false, error: err?.message || 'Failed to retrieve pricing tiers' });
+    }
+  });
+
+  // 3c-1g. Flutterwave Checkout Initiation for Monetization Tiers
+  app.post(['/api/v1/payments/flutterwave/checkout', '/api/payments/flutterwave/checkout'], async (req, res) => {
+    try {
+      const { merchantPhone, packageId, customerName, customerEmail, productId, productTitle, category, city, redirectUrl } = req.body;
+      if (!merchantPhone || !packageId) {
+        return res.status(400).json({ success: false, error: 'merchantPhone and packageId are required.' });
+      }
+
+      const checkout = await monetizationService.initiateTierCheckout({
+        merchantPhone,
+        packageId,
+        customerName,
+        customerEmail,
+        productId,
+        productTitle,
+        category,
+        city,
+        redirectUrl,
+      });
+
+      res.json(checkout);
+    } catch (err: any) {
+      console.error('[Flutterwave Tier Checkout Error]:', err);
+      res.status(500).json({ success: false, error: err?.message || 'Failed to initiate tier checkout' });
+    }
+  });
+
+  // 3c-1h. Merchant Digital Certificate Endpoint
+  app.get(['/api/v1/merchant/:phone/certificate', '/api/merchant/:phone/certificate'], async (req, res) => {
+    try {
+      const { phone } = req.params;
+      const cert = await monetizationService.getMerchantCertificate(phone);
+      if (!cert.found) {
+        return res.status(404).json({ success: false, error: cert.error || 'Merchant not found' });
+      }
+      res.json({ success: true, ...cert });
+    } catch (err: any) {
+      console.error('[Merchant Certificate Error]:', err);
+      res.status(500).json({ success: false, error: err?.message || 'Failed to load certificate' });
+    }
+  });
+
+  // 3c-1i. Boost Product with Available Credit Endpoint
+  app.post(['/api/v1/merchant/boost-product', '/api/merchant/boost-product'], async (req, res) => {
+    try {
+      const { merchantPhone, productId } = req.body;
+      if (!merchantPhone || !productId) {
+        return res.status(400).json({ success: false, error: 'merchantPhone and productId are required.' });
+      }
+
+      const result = await monetizationService.boostProductWithCredit({
+        merchantPhone,
+        productId,
+      });
+
+      res.json(result);
+    } catch (err: any) {
+      console.error('[Boost Product Error]:', err);
+      res.status(400).json({ success: false, error: err?.message || 'Failed to boost product' });
+    }
+  });
+
+  // 3c-1j. Floate Base Kit - Public Merchant Verification API (floate.xyz/v/:fid)
+  app.get(['/api/v1/verify/:fid', '/api/verify/:fid'], async (req, res) => {
+    try {
+      const { fid } = req.params;
+      const cleanFid = String(fid || '').trim().toUpperCase();
+
+      // 1. Check built-in sample credentials
+      const foundSample = findCredentialByFid(cleanFid);
+      if (foundSample) {
+        return res.json({
+          success: true,
+          fid: foundSample.fid,
+          biz: foundSample.biz,
+          loc: foundSample.loc,
+          name: foundSample.name,
+          city: foundSample.city,
+          tier: foundSample.tier,
+          status: foundSample.status,
+          verified_on: foundSample.verifiedOn,
+          checks: foundSample.checks,
+          profile_url: `https://floate.xyz/m/${foundSample.slug}`,
+          verify_url: foundSample.verifyUrl,
+          certificate_url: foundSample.certificateUrl,
+          badge_url: foundSample.badgeCardUrl,
+          seal_url: '/brand/base-kit/layers/seal-verified-1080.png',
+        });
+      }
+
+      // 2. Query Firestore merchant records
+      const allMerchants = await firestoreDb.getAllMerchantsList(300);
+      const merchant = allMerchants.find(
+        (m) =>
+          (m.certificateId && m.certificateId.toUpperCase() === cleanFid) ||
+          m.id === cleanFid ||
+          m.whatsapp === cleanFid
+      );
+
+      if (merchant) {
+        const cred = createCredentialForMerchant({
+          merchantId: merchant.id || merchant.whatsapp,
+          name: merchant.ownerFullName || merchant.businessName || 'Verified Merchant',
+          biz: merchant.businessName || 'Verified Enterprise',
+          loc: `${merchant.city || 'Market Hub'}, ${merchant.state || 'Nigeria'}`,
+          phone: merchant.whatsapp,
+          isPlus: Boolean(merchant.isVerifiedPlus),
+          customFid: cleanFid.startsWith('FLT-') ? cleanFid : undefined,
+        });
+
+        return res.json({
+          success: true,
+          fid: cred.fid,
+          biz: cred.biz,
+          loc: cred.loc,
+          name: cred.name,
+          city: cred.city,
+          tier: cred.tier,
+          status: cred.status,
+          verified_on: cred.verifiedOn,
+          checks: cred.checks,
+          profile_url: `https://floate.xyz/m/${cred.slug}`,
+          verify_url: cred.verifyUrl,
+          certificate_url: cred.certificateUrl,
+          badge_url: cred.badgeCardUrl,
+          seal_url: '/brand/base-kit/layers/seal-verified-1080.png',
+        });
+      }
+
+      return res.status(404).json({
+        success: false,
+        error: `Merchant ID ${cleanFid} is not an active verified seller on Floate.`,
+        fid: cleanFid,
+        status: 'unverified',
+      });
+    } catch (err: any) {
+      console.error('[Verify FID Error]:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Verification lookup failed' });
+    }
+  });
+
+  // 3c-1k. Floate Base Kit - Credential Manifest & Samples API
+  app.get(['/api/v1/credentials/samples', '/api/credentials/samples'], (_req, res) => {
+    res.json({ success: true, count: SAMPLE_CREDENTIALS.length, samples: SAMPLE_CREDENTIALS });
+  });
+
+  app.get(['/api/v1/credentials/:fid', '/api/credentials/:fid'], (req, res) => {
+    const { fid } = req.params;
+    const cred = findCredentialByFid(fid);
+    if (!cred) {
+      return res.status(404).json({ success: false, error: 'Credential not found' });
+    }
+    return res.json({ success: true, credential: cred });
+  });
+
+  // 3c-1l. Public /v/:fid Web Route with Rich OpenGraph Tags for Social Sharing
+  app.get('/v/:fid', async (req, res, next) => {
+    // If request accepts JSON, pass to API or let next() handle SPA
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      return next();
+    }
+
+    const { fid } = req.params;
+    const cleanFid = String(fid || '').trim().toUpperCase();
+    const cred = findCredentialByFid(cleanFid);
+
+    const bizName = cred ? cred.biz : 'Verified Merchant';
+    const loc = cred ? cred.loc : 'Nigerian Market Network';
+    const title = `${bizName} | Floate Verified Merchant (${cleanFid})`;
+    const desc = `${bizName} has been physically verified on Floate with a real stall at ${loc}. Chat directly on WhatsApp.`;
+    const image = cred?.badgeCardUrl || '/brand/base-kit/layers/seal-verified-1080.png';
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>${title}</title>
+  <meta name="description" content="${desc}"/>
+  <meta property="og:title" content="${title}"/>
+  <meta property="og:description" content="${desc}"/>
+  <meta property="og:image" content="${image}"/>
+  <meta property="og:type" content="profile"/>
+  <meta name="twitter:card" content="summary_large_image"/>
+  <link rel="stylesheet" href="/brand/base-kit/tokens/tokens.css"/>
+  <script>
+    // Redirect to interactive SPA view if loaded directly in browser
+    window.location.href = '/?verify=' + encodeURIComponent('${cleanFid}');
+  </script>
+</head>
+<body style="background:#0E3B12;color:#FFFDF5;font-family:sans-serif;text-align:center;padding:40px 20px;">
+  <img src="/brand/base-kit/layers/wordmark-yellow.png" style="height:44px;margin-bottom:24px;"/>
+  <h2>Verifying Merchant ${cleanFid}...</h2>
+  <p>${desc}</p>
+  <p style="margin-top:20px;"><a href="/?verify=${cleanFid}" style="color:#FFC107;font-weight:bold;">Click here if not redirected automatically</a></p>
+</body>
+</html>`;
+    return res.send(html);
+  });
+
+  // 3c-1m. High-Resolution PNG Credential Asset Download Endpoint (Direct One-Tap Download for WhatsApp & Mobile Web)
+  app.get(
+    [
+      '/api/v1/credentials/:fid/download/:type',
+      '/api/credentials/:fid/download/:type',
+      '/c/:fid/:type.png',
+      '/c/:fid/:type',
+    ],
+    async (req, res) => {
+      try {
+        const { fid, type } = req.params;
+        const cleanFid = String(fid || '').trim();
+        const rawType = String(type || 'badge').toLowerCase().replace(/\.png$/, '');
+
+        // Resolve credential for FID, Phone, or Merchant ID
+        const cred = await resolveCredential(cleanFid);
+        if (!cred) {
+          return res.status(404).json({ success: false, error: `Credential not found for ID: ${cleanFid}` });
+        }
+
+        // If client requests all assets manifest
+        if (rawType === 'all' || rawType === 'manifest') {
+          return res.json({
+            success: true,
+            fid: cred.fid,
+            merchant: cred.biz,
+            location: cred.loc,
+            assets: {
+              badgeCard: `/api/credentials/${cred.fid}/download/badge`,
+              certificate: `/api/credentials/${cred.fid}/download/certificate`,
+              flyer: `/api/credentials/${cred.fid}/download/flyer`,
+              squareBoost: `/api/credentials/${cred.fid}/download/square`,
+              verifiedSeal: `/brand/base-kit/layers/seal-verified-1080.png`,
+              webProfile: `https://floate.xyz/v/${cred.fid}`,
+            },
+          });
+        }
+
+        // Normalize type
+        let normalizedType: 'badge' | 'certificate' | 'flyer' | 'square' | 'seal' = 'badge';
+        if (rawType.includes('cert')) normalizedType = 'certificate';
+        else if (rawType.includes('flyer')) normalizedType = 'flyer';
+        else if (rawType.includes('square') || rawType.includes('status')) normalizedType = 'square';
+        else if (rawType.includes('seal')) normalizedType = 'seal';
+        else normalizedType = 'badge';
+
+        const { buffer, filename, contentType } = await renderCredentialPng(cred, normalizedType);
+
+        // Force attachment if requested via /download/ route or ?download=1 query
+        const isDownload = req.path.includes('/download/') || req.query.download === '1' || req.query.download === 'true';
+
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', `${isDownload ? 'attachment' : 'inline'}; filename="${filename}"`);
+        res.setHeader('Content-Length', buffer.length);
+        res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+        return res.end(buffer);
+      } catch (err: any) {
+        console.error('[Credential Asset Download Error]:', err);
+        return res.status(500).json({ success: false, error: err?.message || 'Failed to render credential asset' });
+      }
+    }
+  );
+
 
   // 3c. Payment Gateways Configuration & Status Endpoint
   app.get('/api/payment/status', (_req, res) => {
@@ -1534,10 +1873,14 @@ async function startServer() {
           {
             quickReplies: [
               { id: 'btn_for_businesses', title: '🏪 Business Hub' },
+              { id: 'btn_download_badge', title: '🎨 Get Store Posters' },
               { id: 'btn_home', title: '🏠 Main Menu' },
             ],
           }
         ).catch((waErr) => console.warn('[WhatsApp Verification Notification Error]:', waErr));
+
+        // Automatically dispatch store badge card, certificate, and flyer pictures into WhatsApp
+        await sendMerchantVisualAssetsToWhatsApp(cleanPhone, ownerName, storeName, result.session?.marketLocation || result.merchant?.state || 'Nigeria').catch((err) => console.warn('[Auto Asset Push Error Visual Verif]:', err));
       }
 
       return res.json({
@@ -2092,10 +2435,13 @@ async function startServer() {
       sendWhatsAppMessage(cleanPhone, badgeMessage, {
         quickReplies: [
           { id: 'btn_my_store', title: '🏪 View My Store' },
-          { id: 'btn_add_product', title: '➕ Add More Products' },
-          { id: 'btn_safepay_create', title: '🔒 Create SafePay' },
+          { id: 'btn_download_badge', title: '🎨 Get Store Posters' },
+          { id: 'btn_add_product', title: '➕ Add Products' },
         ],
       }).catch((e) => console.warn('[WhatsApp Verification Message Notice]:', e?.message || e));
+
+      // Automatically send store badge card, certificate, and flyer pictures into WhatsApp
+      sendMerchantVisualAssetsToWhatsApp(cleanPhone, ownerFullName, effectiveBizName, effectiveLocation).catch((e) => console.warn('[Auto Asset Push Error Live Submit]:', e));
 
       return res.json({
         success: true,
@@ -2228,8 +2574,30 @@ async function startServer() {
       let targetPhone = decodedParam;
       let merchant: any = null;
 
+      // 0. Check if rawParam is an FID (e.g. FLT-ENU-00588)
+      if (decodedParam.startsWith('FLT-')) {
+        const cred = findCredentialByFid(decodedParam);
+        if (cred) {
+          targetPhone = '07065599116';
+          merchant = await firestoreDb.getMerchant(targetPhone);
+          if (!merchant) {
+            merchant = {
+              id: targetPhone,
+              businessName: cred.biz,
+              ownerFullName: cred.name,
+              whatsapp: targetPhone,
+              state: cred.loc,
+              city: cred.city,
+              category: 'General Retail',
+              isVerified: true,
+              verifiedStatus: 'YES',
+            };
+          }
+        }
+      }
+
       // 1. Check if rawParam is a sheet identifier (e.g. sheet-1, sheet-2, sheet1, sheet_1)
-      const sheetMatch = decodedParam.match(/^sheet[-_]?(\d+)$/i);
+      const sheetMatch = !merchant ? decodedParam.match(/^sheet[-_]?(\d+)$/i) : null;
       if (sheetMatch) {
         const sheetIndex = Math.max(0, parseInt(sheetMatch[1], 10) - 1);
         const allListings = await sheetsDb.getAllListings();
@@ -2334,15 +2702,65 @@ async function startServer() {
 
       const cleanBizName = merchant?.businessName || 'Verified Merchant';
       const merchantSlug = cleanBizName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      const loc = [merchant?.city, merchant?.state].filter(Boolean).join(', ') || 'Nigeria';
+
+      // Authoritative Backend FID & Base Kit Asset Generation
+      const credential = createCredentialForMerchant({
+        merchantId: merchant?.id || targetPhone || decodedParam,
+        name: merchant?.ownerFullName || cleanBizName,
+        biz: cleanBizName,
+        loc: loc,
+        phone: targetPhone,
+        isPlus: true,
+      });
+
+      // Authoritative Selfie / Avatar URL Resolution
+      const resolvedSelfieUrl =
+        merchant?.profilePhotoUrl ||
+        (merchant as any)?.kycSelfieUrl ||
+        (merchant as any)?.selfieUrl ||
+        merchant?.verificationVideoUrl ||
+        merchant?.photoUrl ||
+        '/assets/aistudio/floate-verified-badge.png';
+
+      const enrichedMerchant = {
+        ...(merchant || {}),
+        businessName: cleanBizName,
+        whatsapp: targetPhone || decodedParam,
+        isVerified: Boolean(merchant?.isVerified ?? true),
+        slug: merchantSlug,
+        fid: credential.fid,
+        selfieUrl: resolvedSelfieUrl,
+        avatar_url: resolvedSelfieUrl,
+        isUnmetered: true,
+        inquiriesFree: true,
+        badgeUrl: '/brand/base-kit/layers/seal-verified-256.png',
+        masterSealUrl: '/brand/base-kit/layers/seal-verified-1080.png',
+        certificateUrl: credential.certificateUrl,
+        badgeCardUrl: credential.badgeCardUrl,
+        flyerUrl: credential.flyerUrl,
+        squareBoostUrl: credential.squareBoostUrl,
+        verificationUrl: credential.verifyUrl,
+      };
+
+      // Strip deprecated credit meter fields from API response
+      delete (enrichedMerchant as any).credits;
+      delete (enrichedMerchant as any).lead_credits;
 
       return res.json({
         success: true,
-        merchant: merchant || {
-          businessName: cleanBizName,
-          whatsapp: targetPhone || decodedParam,
-          isVerified: true,
-          slug: merchantSlug,
-        },
+        merchant: enrichedMerchant,
+        credential,
+        fid: credential.fid,
+        selfieUrl: resolvedSelfieUrl,
+        avatar_url: resolvedSelfieUrl,
+        isVerified: Boolean(merchant?.isVerified ?? true),
+        isUnmetered: true,
+        badgeUrl: '/brand/base-kit/layers/seal-verified-256.png',
+        badgeCardUrl: credential.badgeCardUrl,
+        certificateUrl: credential.certificateUrl,
+        flyerUrl: credential.flyerUrl,
+        squareBoostUrl: credential.squareBoostUrl,
         slug: merchantSlug,
         cleanStoreUrl: `https://www.floate.xyz/merchant/${merchantSlug}`,
         vendorPhone: targetPhone,
@@ -2415,6 +2833,69 @@ async function startServer() {
       return res.status(500).json({ success: false, error: err?.message || 'Failed to process buyer inquiry' });
     }
   });
+
+  // Flutterwave Checkout Packages Endpoint (POST /api/v1/payments/flutterwave/checkout)
+  app.post(
+    ['/api/v1/payments/flutterwave/checkout', '/api/payments/flutterwave/checkout', '/api/v1/checkout/flutterwave'],
+    async (req, res) => {
+      try {
+        const {
+          merchantPhone,
+          phone,
+          packageId,
+          package_id,
+          tierId,
+          customerName,
+          customerEmail,
+          productId,
+          productTitle,
+          category,
+          city,
+          redirectUrl,
+        } = req.body || {};
+
+        const effectivePhone = String(merchantPhone || phone || '2348000000000').trim();
+        const effectivePackageId = String(packageId || package_id || tierId || 'VERIFIED_PLUS').trim();
+
+        // 1. REJECT DEPRECATED LEAD CREDITS PACKAGES
+        if (effectivePackageId === 'LEAD_CREDITS_10' || effectivePackageId.toLowerCase().includes('lead_credits')) {
+          return res.status(400).json({
+            success: false,
+            error: 'LEAD_CREDITS_10 package is deprecated. Inquiries on Floate are now 100% unmetered and free for registered vendors.',
+          });
+        }
+
+        // 2. INITIATE FLUTTERWAVE CHECKOUT FOR GROWTH PACKAGES
+        const checkoutResult = await monetizationService.initiateTierCheckout({
+          merchantPhone: effectivePhone,
+          packageId: effectivePackageId,
+          customerName: customerName ? String(customerName) : undefined,
+          customerEmail: customerEmail ? String(customerEmail) : undefined,
+          productId: productId ? String(productId) : undefined,
+          productTitle: productTitle ? String(productTitle) : undefined,
+          category: category ? String(category) : undefined,
+          city: city ? String(city) : undefined,
+          redirectUrl: redirectUrl ? String(redirectUrl) : undefined,
+        });
+
+        return res.json({
+          success: true,
+          checkoutUrl: checkoutResult.checkoutUrl,
+          paymentLink: checkoutResult.checkoutUrl,
+          txRef: checkoutResult.txRef,
+          amount: checkoutResult.amount,
+          packageName: checkoutResult.packageName,
+          packageId: effectivePackageId,
+        });
+      } catch (err: any) {
+        console.error('[Flutterwave Checkout API Error]:', err);
+        return res.status(400).json({
+          success: false,
+          error: err?.message || 'Failed to generate Flutterwave checkout link.',
+        });
+      }
+    }
+  );
 
   // 3j. Web Business Registration & Product Addition Endpoints
   app.post('/api/register/business', async (req, res) => {
@@ -2909,6 +3390,75 @@ async function startServer() {
       return res.status(500).json({ authenticated: false, status: 'ERROR', error: err?.message || 'Failed to check session status.' });
     }
   });
+
+  // 3. POST /auth/whatsapp/exchange - Exchange wa_token for EXISTING Session / JWT
+  app.post(
+    ['/auth/whatsapp/exchange', '/api/v1/auth/whatsapp/exchange', '/api/auth/whatsapp/exchange'],
+    async (req, res) => {
+      try {
+        const { wa_token, token } = req.body || {};
+        const queryToken = (req.query.wa_token || req.query.token || '').toString();
+        const effectiveToken = wa_token || token || queryToken;
+
+        if (!effectiveToken) {
+          return res.status(400).json({ success: false, error: 'wa_token body or query parameter is required.' });
+        }
+
+        const result = await whatsappAuthService.exchangeWhatsAppToken(String(effectiveToken));
+        if (!result.success) {
+          return res.status(401).json(result);
+        }
+
+        return res.json(result);
+      } catch (err: any) {
+        console.error('[API /auth/whatsapp/exchange Error]:', err);
+        return res.status(500).json({ success: false, error: err?.message || 'Token exchange failed.' });
+      }
+    }
+  );
+
+  // 4. POST /auth/whatsapp/generate/storefront - Generate Vendor Storefront Deep-Link Token
+  app.post(
+    ['/auth/whatsapp/generate/storefront', '/api/v1/auth/whatsapp/generate/storefront', '/api/auth/whatsapp/generate/storefront'],
+    async (req, res) => {
+      try {
+        const { merchantPhone, phone, vendorId } = req.body || {};
+        const targetPhone = String(merchantPhone || phone || '').trim();
+
+        if (!targetPhone) {
+          return res.status(400).json({ status: 'error', error: 'merchantPhone or phone is required.' });
+        }
+
+        const result = await whatsappAuthService.generateStorefrontToken(targetPhone, vendorId);
+        return res.json(result);
+      } catch (err: any) {
+        console.error('[API /auth/whatsapp/generate/storefront Error]:', err);
+        return res.status(400).json({ status: 'error', error: err?.message || 'Failed to generate storefront token.' });
+      }
+    }
+  );
+
+  // 5. POST /auth/whatsapp/generate/checkout - Generate Order-Bound Payment Deep-Link Token
+  app.post(
+    ['/auth/whatsapp/generate/checkout', '/api/v1/auth/whatsapp/generate/checkout', '/api/auth/whatsapp/generate/checkout'],
+    async (req, res) => {
+      try {
+        const { orderId, escrowRef, phone, merchantPhone } = req.body || {};
+        const targetOrderId = String(orderId || escrowRef || '').trim();
+        const targetPhone = String(phone || merchantPhone || '').trim();
+
+        if (!targetOrderId) {
+          return res.status(400).json({ status: 'error', error: 'orderId is required to generate order-bound checkout token.' });
+        }
+
+        const result = await whatsappAuthService.generateCheckoutToken(targetOrderId, targetPhone || undefined);
+        return res.json(result);
+      } catch (err: any) {
+        console.error('[API /auth/whatsapp/generate/checkout Error]:', err);
+        return res.status(400).json({ status: 'error', error: err?.message || 'Failed to generate checkout token.' });
+      }
+    }
+  );
 
   // 3. Webhook aliases for /api/v1/webhooks/whatsapp
   app.get(['/api/v1/webhooks/whatsapp', '/api/webhooks/whatsapp'], handleWhatsAppVerification);
