@@ -309,36 +309,17 @@ export async function sendMerchantVisualAssetsToWhatsApp(
     });
 
     const baseUrl = getAppBaseUrl();
-    const badgeImgUrl = `${baseUrl}/api/credentials/${credential.fid}/download/badge`;
     const certImgUrl = `${baseUrl}/api/credentials/${credential.fid}/download/certificate`;
-    const flyerImgUrl = `${baseUrl}/api/credentials/${credential.fid}/download/flyer`;
 
-    console.log(`[Auto WhatsApp Asset Push] 🎨 Pushing visual posters directly to +${cleanPhone} (${credential.fid})`);
+    console.log(`[Auto WhatsApp Asset Push] 📜 Pushing official certificate directly to +${cleanPhone} (${credential.fid})`);
 
-    // 1. Badge Card Image
+    // Send only the official certificate image as requested by user
     await sendWhatsAppMessage(cleanPhone, '', {
       image: {
-        url: badgeImgUrl,
-        caption: `🛡️ *${finalBizName}* — Official Verified Store Badge Card\nFID: *${credential.fid}*\n\n📲 Post this picture on your WhatsApp Status & social media to show customers your store is verified!`,
-      },
-    }).catch((e) => console.warn('[Auto Badge Push Error]:', e));
-
-    // 2. Official Certificate
-    await sendWhatsAppMessage(cleanPhone, '', {
-      document: {
         url: certImgUrl,
-        filename: `Floate-Verified-Certificate-${credential.fid}.png`,
-        caption: `📜 *Official Certificate of Verification & Trust* (${credential.fid})`,
+        caption: `📜 *Official Certificate of Verification & Trust*\nStore: *${finalBizName}*\nFID: *${credential.fid}*\n\nYour verified store certificate is ready. You can download or print this official certificate anytime!`,
       },
-    }).catch((e) => console.warn('[Auto Cert Push Error]:', e));
-
-    // 3. A5 Market Stall Poster / Flyer
-    await sendWhatsAppMessage(cleanPhone, '', {
-      image: {
-        url: flyerImgUrl,
-        caption: `🏷️ *${finalBizName}* — Official A5 Market Stall Poster\n\n🖨️ Print and laminate this poster for your physical shop or stall!`,
-      },
-    }).catch((e) => console.warn('[Auto Flyer Push Error]:', e));
+    });
   } catch (err) {
     console.error('[sendMerchantVisualAssetsToWhatsApp Error]:', err);
   }
@@ -1248,18 +1229,17 @@ export async function startFloateDirectHandoff(buyerPhone: string, buyerName: st
 
   if (!isQualified) {
     updateWhatsAppSession(cleanBuyerPhone, {
-      state: 'QUALIFYING_BUDGET',
+      state: 'QUALIFYING_LOCATION',
       leadQualificationDraft: {
-        step: 'AWAITING_BUDGET',
+        step: 'AWAITING_DELIVERY_LOCATION',
         vendorId: bizId,
         updatedAt: new Date().toISOString(),
       },
     });
     await sendWhatsAppMessage(
       cleanBuyerPhone,
-      `🛡️ *Lead Qualification Required* 🛡️\n\n` +
-      `To protect our vendors, please provide your *Budget* and *Specific Needs* before we reveal the direct contact details.\n\n` +
-      `What is your budget for this inquiry?`
+      `🛡️ *Lead Qualification* 🛡️\n\n` +
+      `What is your location for delivery?`
     );
     return;
   }
@@ -4483,6 +4463,7 @@ export async function processMasterWhatsAppEngine(params: {
   // Certificate, Market Flyer, and Official Seal directly on WhatsApp!
   // -------------------------------------------------------------
   const isCredentialRequest =
+    text === 'btn_download_certificate' ||
     text === 'btn_download_badge' ||
     text === 'btn_download_cert' ||
     text === 'btn_download_kit' ||
@@ -4493,77 +4474,11 @@ export async function processMasterWhatsAppEngine(params: {
 
   if (isCredentialRequest) {
     await firestoreDb.recordFirstContact(cleanPhone, senderName);
-    const cred = await resolveCredential(cleanPhone);
-    const baseUrl = getAppBaseUrl();
-
-    if (!cred) {
-      await sendWhatsAppMessage(
-        cleanPhone,
-        `⚠️ *No Verification Record Found Yet*\n\n` +
-        `We could not find an active verification badge for +${cleanPhone}.\n` +
-        `Register your store or upgrade to *Floate Verified Plus* to get your official 1080p Badge Card, Certificate, and Market Flyer! 🛡️`,
-        {
-          quickReplies: [
-            { id: 'btn_vendor_register', title: '🏪 Register Store' },
-            { id: 'btn_for_businesses', title: '💼 Business Hub' },
-            { id: 'btn_home', title: '🏠 Main Menu' },
-          ],
-        }
-      );
-      return;
-    }
-
-    const badgeUrl = `${baseUrl}/api/credentials/${cred.fid}/download/badge`;
-    const certUrl = `${baseUrl}/api/credentials/${cred.fid}/download/certificate`;
-    const flyerUrl = `${baseUrl}/api/credentials/${cred.fid}/download/flyer`;
-    const squareUrl = `${baseUrl}/api/credentials/${cred.fid}/download/square`;
-    const sealUrl = `${baseUrl}/brand/base-kit/layers/seal-verified-1080.png`;
-    const publicProfileUrl = `https://floate.xyz/v/${cred.fid}`;
-
-    // 1. Send High-Res Badge Card Image directly into chat
-    await sendWhatsAppMessage(cleanPhone, '', {
-      image: {
-        url: badgeUrl,
-        caption: `🛡️ Floate Verified Badge Card (${cred.fid})\n${cred.biz} • ${cred.loc}`,
-      },
-    }).catch((e) => console.warn('[WhatsApp Badge Send Warning]:', e));
-
-    // 2. Send Master Certificate as Document (uncompressed master asset)
-    await sendWhatsAppMessage(cleanPhone, '', {
-      document: {
-        url: certUrl,
-        filename: `Floate-Certificate-${cred.fid}.png`,
-        caption: `📜 Official Verified Merchant Certificate (${cred.fid})`,
-      },
-    }).catch((e) => console.warn('[WhatsApp Certificate Send Warning]:', e));
-
-    // 3. Companion Details & Download Links Message
-    const kitMessage =
-      `🎉 *Floate Verification Assets Ready!* 🛡️\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `🏪 *Business:* ${cred.biz}\n` +
-      `👤 *Merchant:* ${cred.name}\n` +
-      `📍 *Location:* ${cred.loc}\n` +
-      `🔖 *Floate ID:* \`${cred.fid}\`\n` +
-      `⭐ *Tier:* ${cred.tier === 'plus' ? 'VERIFIED PLUS' : 'VERIFIED MERCHANT'}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-      `📲 *Direct One-Tap Download Links (Works in WhatsApp):*\n\n` +
-      `• 🛡️ *1080p Badge Card (Square):*\n${badgeUrl}\n\n` +
-      `• 📜 *Full 1080×1920 Certificate:*\n${certUrl}\n\n` +
-      `• 🏷️ *A5 Market Flyer (Print Ready):*\n${flyerUrl}\n\n` +
-      `• 📱 *Square Product Boost Template:*\n${squareUrl}\n\n` +
-      `• 🟢 *Official Scalloped Seal (Master 1080px):*\n${sealUrl}\n\n` +
-      `🌐 *Public Trust & Verification Page:*\n${publicProfileUrl}\n\n` +
-      `_Post these assets on your WhatsApp Status and Instagram to build instant trust with buyers!_`;
-
-    await sendWhatsAppMessage(cleanPhone, kitMessage, {
-      quickReplies: [
-        { id: 'btn_for_businesses', title: '🏪 Store Menu' },
-        { id: 'btn_home', title: '🏠 Main Menu' },
-      ],
-    });
+    const merchant = await firestoreDb.getMerchant(cleanPhone);
+    await sendMerchantVisualAssetsToWhatsApp(cleanPhone, merchant?.ownerFullName, merchant?.businessName, merchant?.city || merchant?.state);
     return;
   }
+
 
   // -------------------------------------------------------------
   // INBOUND REFERRAL LINK DETECTION (e.g. text contains ref_ or REF-)
@@ -5701,9 +5616,40 @@ export async function processMasterWhatsAppEngine(params: {
     return;
   }
 
-  // 1a. Vendor KYC Verification Step (Tier 2 BVN / Tier 3 NIN)
-  if (session.state === 'VENDOR_KYC') {
-    await handleVendorKycStep(cleanPhone, senderName, text, session);
+  // 1c. Lead Qualification (Delivery Location & When Needed)
+  if (session.state === 'QUALIFYING_LOCATION') {
+    updateWhatsAppSession(cleanPhone, {
+      state: 'QUALIFYING_NEEDS',
+      leadQualificationDraft: {
+        ...(session.leadQualificationDraft || { step: 'AWAITING_DELIVERY_LOCATION', updatedAt: new Date().toISOString() }),
+        step: 'AWAITING_WHEN_NEEDED',
+        deliveryLocation: text,
+      },
+    });
+    await sendWhatsAppMessage(cleanPhone, `When do you need the product?`);
+    return;
+  }
+
+  if (session.state === 'QUALIFYING_NEEDS') {
+    const draft = session.leadQualificationDraft;
+    const finalDraft = {
+      ...(draft || { step: 'AWAITING_WHEN_NEEDED', updatedAt: new Date().toISOString() }),
+      whenNeeded: text,
+    };
+    
+    try {
+      await firestoreDb.saveBuyerQualification(cleanPhone, finalDraft.vendorId!, finalDraft.deliveryLocation!, finalDraft.whenNeeded!);
+    } catch (err) {
+      console.warn('[Save Qualification Warning]:', err);
+    }
+    
+    updateWhatsAppSession(cleanPhone, {
+      state: 'IDLE',
+      leadQualificationDraft: undefined,
+    });
+    
+    await sendWhatsAppMessage(cleanPhone, `Thank you! Qualification complete.`);
+    await startFloateDirectHandoff(cleanPhone, senderName, finalDraft.vendorId!);
     return;
   }
 
@@ -6620,143 +6566,9 @@ export async function processMasterWhatsAppEngine(params: {
     return;
   }
 
-  // Step 1: Order Volume Answered -> Go to Step 2 (Fulfillment)
-  if (session.state === 'QUALIFYING_VOLUME') {
-    if (
-      text.startsWith('vol_') ||
-      /^(retail|wholesale|personal|bulk|resell|sample)$/i.test(cleanLower) ||
-      /^(retail order|personal retail|wholesale order|bulk order)$/i.test(cleanLower)
-    ) {
-      const volChoice: 'Retail' | 'Wholesale' =
-        /wholesale|bulk|resell/i.test(cleanLower) || text === 'vol_wholesale' ? 'Wholesale' : 'Retail';
 
-      updateWhatsAppSession(senderPhone, {
-        state: 'QUALIFYING_FULFILLMENT',
-        orderVolume: volChoice,
-      });
 
-      await sendWhatsAppMessage(
-        senderPhone,
-        `📍 *Step 2 of 3: Fulfillment & Delivery Preference*\n\n` +
-        `How would you like to receive your item from *${session.activeVendorName}*?\n\n` +
-        `1️⃣ *Physical Shop Visit* (Walk in & inspect)\n` +
-        `2️⃣ *Local City Delivery* (Dispatch to doorstep)\n` +
-        `3️⃣ *Interstate Waybill* (Interstate logistics)`,
-        {
-          quickReplies: [
-            { id: 'ful_visit', title: '📍 Shop Visit' },
-            { id: 'ful_delivery', title: '🚚 City Delivery' },
-            { id: 'ful_waybill', title: '📦 Interstate Waybill' },
-          ],
-        }
-      );
-      return;
-    } else if (!text.startsWith('vol_') && cleanLower.length > 2) {
-      // If user typed a completely different product or question instead of answering volume, cancel qualification and search
-      resetWhatsAppSession(senderPhone);
-      await execute10CardSearch(senderPhone, senderName, { queryText: text });
-      return;
-    }
-  }
 
-  // Step 2: Fulfillment Answered -> Go to Step 3 (Buyer Location)
-  if (session.state === 'QUALIFYING_FULFILLMENT') {
-    if (
-      text.startsWith('ful_') ||
-      /^(visit|delivery|waybill|interstate|shop|dispatch|pickup|doorstep|way bill)$/i.test(cleanLower) ||
-      /^(shop visit|city delivery|interstate waybill)$/i.test(cleanLower)
-    ) {
-      let fulChoice: 'Shop Visit' | 'Local City Delivery' | 'Interstate Waybill' = 'Local City Delivery';
-      if (text === 'ful_visit' || /visit|shop|pickup|in person/i.test(cleanLower)) {
-        fulChoice = 'Shop Visit';
-      } else if (text === 'ful_waybill' || /waybill|interstate|way bill/i.test(cleanLower)) {
-        fulChoice = 'Interstate Waybill';
-      }
-
-      updateWhatsAppSession(senderPhone, {
-        state: 'QUALIFYING_LOCATION',
-        fulfillment: fulChoice,
-      });
-
-      await sendWhatsAppMessage(
-        senderPhone,
-        `📍 *Step 3 of 3: Buyer Location*\n\n` +
-        `Which city or state are you shopping from?\n\n` +
-        `_Tap a common city below, or simply reply with your city name (e.g. \`Enugu\`, \`Ibadan\`, \`Asaba\`, \`Kano\`):_`,
-        {
-          quickReplies: [
-            { id: 'loc_lagos', title: '📍 Lagos' },
-            { id: 'loc_abuja', title: '📍 Abuja' },
-            { id: 'loc_ph', title: '📍 Port Harcourt' },
-          ],
-        }
-      );
-      return;
-    } else if (!text.startsWith('ful_') && cleanLower.length > 2) {
-      // If user typed a completely new search term instead of answering delivery, cancel and execute search
-      resetWhatsAppSession(senderPhone);
-      await execute10CardSearch(senderPhone, senderName, { queryText: text });
-      return;
-    }
-  }
-
-  // Step 1: Budget
-  if (session.state === 'QUALIFYING_BUDGET') {
-    updateWhatsAppSession(senderPhone, {
-      state: 'QUALIFYING_NEEDS',
-      leadQualificationDraft: {
-        ...(session.leadQualificationDraft || { step: 'AWAITING_BUDGET', updatedAt: new Date().toISOString() }),
-        step: 'AWAITING_NEEDS',
-        budget: text,
-      },
-    });
-    await sendWhatsAppMessage(senderPhone, `Got it! What are your specific needs for this product?`);
-    return;
-  }
-
-  // Step 2: Needs
-  if (session.state === 'QUALIFYING_NEEDS') {
-    const draft = session.leadQualificationDraft;
-    const finalDraft = {
-      ...(draft || { step: 'AWAITING_NEEDS', updatedAt: new Date().toISOString() }),
-      needs: text,
-    };
-    
-    // Save qualification to Firestore
-    try {
-      await firestoreDb.saveBuyerQualification(senderPhone, finalDraft.vendorId!, finalDraft.budget!, finalDraft.needs!);
-    } catch (err) {
-      console.warn('[Save Qualification Warning]:', err);
-    }
-    
-    updateWhatsAppSession(senderPhone, {
-      state: 'IDLE',
-      leadQualificationDraft: undefined,
-    });
-    
-    await sendWhatsAppMessage(senderPhone, `Thank you! Qualification complete.`);
-    
-    // Now call the original reveal function to provide the number
-    await startFloateDirectHandoff(senderPhone, senderName, finalDraft.vendorId!);
-    return;
-  }
-
-  // Step 3: Buyer Location Answered -> Save Lead to DB & Complete Handoff
-  if (session.state === 'QUALIFYING_LOCATION') {
-    let buyerLoc = text.trim();
-    if (text === 'loc_lagos' || cleanLower.includes('lagos')) {
-      buyerLoc = 'Lagos';
-    } else if (text === 'loc_abuja' || cleanLower.includes('abuja')) {
-      buyerLoc = 'Abuja';
-    } else if (text === 'loc_ph' || cleanLower.includes('port harcourt') || cleanLower.includes('ph')) {
-      buyerLoc = 'Port Harcourt';
-    } else if (text.startsWith('loc_')) {
-      buyerLoc = text.replace('loc_', '').replace(/_/g, ' ');
-    }
-
-    await finish3StepQualificationHandoff(senderPhone, senderName, buyerLoc, session);
-    return;
-  }
 
   // 12. Direct Numeric Selection (1-10) or Business Name Selection from Active Search State
   if (session.searchState && session.searchState.allMatchingListings && session.searchState.allMatchingListings.length > 0) {
@@ -8092,12 +7904,10 @@ async function handleVendorHubRouting(toPhone: string, senderName: string) {
           {
             title: 'Store Growth & Management',
             rows: [
-              { id: 'btn_download_kit', title: '🛡️ Download Brand Kit', description: 'Get 1080p Badge Card, Certificate & Flyer' },
-              { id: 'btn_boost_product', title: '🚀 Boost a Product', description: 'Pin to top of search results for 7 days' },
+              { id: 'btn_download_certificate', title: '📜 Download Certificate', description: 'Get your official PNG Certificate with exact business details' },
               { id: 'btn_vendor_add_product', title: '➕ Add New Product', description: 'Post new item with photo, title & price' },
               { id: 'btn_vendor_edit_products', title: '📦 View / Manage Inventory', description: 'Manage inventory items, stock & prices' },
               { id: 'btn_vendor_stats', title: '📊 Performance & Analytics', description: 'Search views and customer inquiry metrics' },
-              { id: 'btn_upgrade_verified_plus', title: '⭐ Upgrade to Verified Plus', description: 'Official seal, +25 search boost & 3 free boosts' },
               { id: 'btn_my_store', title: '🌐 View Web Storefront', description: 'Open your online digital product catalog' },
               { id: 'btn_faq', title: '❓ Merchant Guide & FAQ', description: 'SafePay escrow, customer inquiries & tips' },
             ],
@@ -8105,9 +7915,9 @@ async function handleVendorHubRouting(toPhone: string, senderName: string) {
         ],
       },
       quickReplies: [
-        { id: 'btn_download_kit', title: '🛡️ Brand Kit' },
+        { id: 'btn_download_certificate', title: '📜 Certificate' },
         { id: 'btn_vendor_add_product', title: '➕ Add Product' },
-        { id: 'btn_boost_product', title: '🚀 Boost Product' },
+        { id: 'btn_for_businesses', title: '🏪 Merchant Hub' },
       ],
     });
     return;

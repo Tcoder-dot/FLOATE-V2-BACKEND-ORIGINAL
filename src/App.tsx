@@ -73,6 +73,28 @@ export default function App() {
     } else if (path.includes('/engine') || search.includes('engine=true')) {
       setActiveTab('engine');
     }
+
+    // Auto-exchange single-use WhatsApp deep-link token if present in query string
+    const params = new URLSearchParams(search);
+    const waToken = params.get('wa_token');
+    if (waToken) {
+      fetch('/auth/whatsapp/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wa_token: waToken }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.token) {
+            localStorage.setItem('floate_auth_token', data.token);
+            if (data.vendor) {
+              localStorage.setItem('floate_vendor_profile', JSON.stringify(data.vendor));
+            }
+            console.log('✅ WhatsApp Deep-Link Auto Auth successful:', data);
+          }
+        })
+        .catch((err) => console.warn('Deep-link auto exchange notice:', err));
+    }
   }, []);
 
   return (

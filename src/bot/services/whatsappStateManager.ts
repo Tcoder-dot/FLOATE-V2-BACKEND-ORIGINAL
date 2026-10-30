@@ -117,9 +117,9 @@ export interface WhatsAppVendorKycDraft {
 }
 
 export interface WhatsAppLeadQualificationDraft {
-  step: 'AWAITING_BUDGET' | 'AWAITING_NEEDS';
-  budget?: string;
-  needs?: string;
+  step: 'AWAITING_DELIVERY_LOCATION' | 'AWAITING_WHEN_NEEDED';
+  deliveryLocation?: string;
+  whenNeeded?: string;
   vendorId?: string;
   updatedAt: string;
 }

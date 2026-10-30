@@ -23,19 +23,39 @@ import { escapeXml, sanitizeCardText } from '../utils/generateReceiptCard.js';
  */
 export async function resolveCredential(fidOrPhone: string): Promise<FloateCredential | null> {
   const cleanId = String(fidOrPhone || '').trim().toUpperCase();
+  const rawId = String(fidOrPhone || '').trim();
 
-  // 1. Check built-in sample credentials
+  // 1. Direct Firestore Merchant lookup
+  try {
+    const directMerchant = await firestoreDb.getMerchant(rawId) || await firestoreDb.getMerchant(rawId.replace(/\D/g, ''));
+    if (directMerchant) {
+      return createCredentialForMerchant({
+        merchantId: directMerchant.id || directMerchant.whatsapp,
+        name: directMerchant.ownerFullName || directMerchant.businessName || 'Verified Merchant',
+        biz: directMerchant.businessName || 'Verified Enterprise',
+        loc: `${directMerchant.city || directMerchant.state || 'Market Hub'}, Nigeria`,
+        phone: directMerchant.whatsapp,
+        isPlus: Boolean(directMerchant.isVerifiedPlus),
+        customFid: cleanId.startsWith('FLT-') ? cleanId : undefined,
+      });
+    }
+  } catch (e) {
+    console.warn('[resolveCredential Direct Lookup Warning]:', e);
+  }
+
+  // 2. Check built-in sample credentials
   const sample = findCredentialByFid(cleanId);
   if (sample) return sample;
 
-  // 2. Query Firestore merchant records
+  // 3. Query Firestore merchant records list
   try {
-    const allMerchants = await firestoreDb.getAllMerchantsList(300);
+    const allMerchants = await firestoreDb.getAllMerchantsList(500);
     const merchant = allMerchants.find(
       (m) =>
         (m.certificateId && m.certificateId.toUpperCase() === cleanId) ||
         m.id === cleanId ||
         m.whatsapp === cleanId ||
+        (m.whatsapp && rawId && m.whatsapp.replace(/\D/g, '').includes(rawId.replace(/\D/g, ''))) ||
         (cleanId.startsWith('FLT-') && m.id && cleanId.includes(m.id.slice(-4)))
     );
 
@@ -54,7 +74,20 @@ export async function resolveCredential(fidOrPhone: string): Promise<FloateCrede
     console.warn('[resolveCredential Warning]:', err);
   }
 
-  // 3. Fallback: Parse FID parameters or default to Lagos sample
+  // 4. Fallback: Parse FID parameters or generate dynamic credential from rawId
+  const cleanPhone = rawId.replace(/\D/g, '');
+  if (cleanPhone.length >= 7) {
+    return createCredentialForMerchant({
+      merchantId: cleanPhone,
+      name: 'Verified Merchant',
+      biz: `Store ${cleanPhone.slice(-4)}`,
+      loc: 'Lagos Island, Lagos',
+      phone: cleanPhone,
+      isPlus: true,
+      customFid: cleanId.startsWith('FLT-') ? cleanId : undefined,
+    });
+  }
+
   const fallbackSample = SAMPLE_CREDENTIALS[3] || SAMPLE_CREDENTIALS[0];
   return {
     ...fallbackSample,
