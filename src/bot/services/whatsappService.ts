@@ -1,6 +1,7 @@
 import express from 'express';
 import { config, isSafePayEnabledForPhone, isVerificationTestingPhone } from '../config.js';
 import { getPublicSiteUrl, buildMerchantProfileUrl, buildProductUrl, buildRegisterUrl, buildCheckoutUrl } from '../../config/siteUrls.js';
+import { matchCatalogProducts } from './catalogSearch.js';
 import { sheetsDb, BusinessListing, normalizePhone, escapeMarkdownText, isSpotlightBusiness, formatListingPrice, parsePriceToNumber } from './sheetsService.js';
 import { firestoreDb, EscrowOrderDoc } from './firestoreService.js';
 import { whatsappAuthService } from './whatsappAuthService.js';
@@ -1311,7 +1312,6 @@ export async function startFloateDirectHandoff(buyerPhone: string, buyerName: st
     console.warn('[Direct Customer Credit Deduction Warning]:', err);
   }
 
-  const prodPermalink = `${getFrontendWebUrl()}/catalog/${bizId}`;
   const vendorStoreUrl = `${getFrontendWebUrl()}/vendor/${vendorPhone}`;
 
   let vendorDetailMsg =
@@ -1328,8 +1328,7 @@ export async function startFloateDirectHandoff(buyerPhone: string, buyerName: st
   vendorDetailMsg +=
     `Status: Verified Active Merchant 🟢\n` +
     `─────────────────────────\n` +
-    `🌐 *Web Product Page:* ${prodPermalink}\n` +
-    `🏪 *Full Web Catalogue:* ${vendorStoreUrl}\n` +
+    `🌐 *Full Web Catalogue:* ${vendorStoreUrl}\n` +
     `─────────────────────────\n` +
     `Tap the button below to message the vendor directly on WhatsApp.`;
 
@@ -7035,6 +7034,47 @@ async function execute10CardSearch(toPhone: string, senderName: string, params: 
   const buyer = await firestoreDb.getOrCreateBuyerAccount(toPhone, 'whatsapp', senderName);
   const targetLoc = location || parsed.targetSellerLocation || buyer.primaryLocation || 'Nigeria';
 
+  const catalogProducts = await firestoreDb.getAllProducts();
+  const matchedProducts = matchCatalogProducts(catalogProducts, cleanProduct, targetLoc, 10);
+  if (matchedProducts.length > 0) {
+    await firestoreDb.recordBuyerSearch(toPhone, cleanProduct, targetLoc, matchedProducts.length);
+    void firestoreDb.logSearch({
+      buyerTelegramId: toPhone,
+      buyerName: senderName || 'Buyer',
+      searchedProduct: cleanProduct,
+      searchedPrice: '',
+      searchedLocation: targetLoc,
+      matchFound: 'Yes',
+      numberOfMatches: matchedProducts.length,
+      matchedMerchantPhones: matchedProducts.map((product) => product.vendorPhone),
+      matchedProductIds: matchedProducts.map((product) => product.id),
+      channel: 'whatsapp',
+      timestamp: new Date().toISOString(),
+    }).catch((error) => console.warn('[WhatsApp Search] Product search metric log notice:', error));
+
+    const productLines = matchedProducts.slice(0, 5).map((product, index) => {
+      const locationText = [product.city, product.state].filter(Boolean).join(', ');
+      return (
+        `*${index + 1}. ${product.name}*\n` +
+        `💰 ${product.price || 'Contact for price'}\n` +
+        `🏪 ${product.vendor.name}${locationText ? ` • ${locationText}` : ''}\n` +
+        `🔗 ${product.productUrl}`
+      );
+    });
+    await sendWhatsAppMessage(
+      toPhone,
+      `🛍️ *Matching listed products for "${cleanProduct}":*\n\n${productLines.join('\n\n')}\n\n` +
+        `Open a product page to view its details and contact the seller.`,
+      {
+        quickReplies: [
+          { id: 'btn_find_product', title: '🔎 New Search' },
+          { id: 'btn_home', title: 'Main Menu' },
+        ],
+      },
+    );
+    return;
+  }
+
   // 2. Query Firestore / Google Sheets for matching verified businesses
   let searchResults;
   try {
@@ -7112,6 +7152,18 @@ async function execute10CardSearch(toPhone: string, senderName: string, params: 
 
   // Record search history for persistent buyer profile
   await firestoreDb.recordBuyerSearch(toPhone, cleanProduct, targetLoc, displayedListings.length);
+  void firestoreDb.logSearch({
+    buyerTelegramId: toPhone,
+    buyerName: senderName || 'Buyer',
+    searchedProduct: cleanProduct,
+    searchedPrice: '',
+    searchedLocation: targetLoc,
+    matchFound: 'Yes',
+    numberOfMatches: displayedListings.length,
+    matchedMerchantPhones: displayedListings.map((listing) => listing.whatsapp),
+    channel: 'whatsapp',
+    timestamp: new Date().toISOString(),
+  }).catch((error) => console.warn('[WhatsApp Search] Vendor search metric log notice:', error));
 
   // Save in user session state for pagination / selection / out-of-area expansion
   updateWhatsAppSession(toPhone, {
@@ -7134,7 +7186,7 @@ async function execute10CardSearch(toPhone: string, senderName: string, params: 
 
   let listMsg = '';
   if (hasLocalVendors) {
-    listMsg = `*Verified Merchants for "${cleanProduct}" in ${targetLoc}:*\n`;
+    listMsg = `*Relevant vendors who sell products like "${cleanProduct}" in ${targetLoc}:*\n`;
   } else {
     listMsg = `📍 *No verified local sellers found directly in ${targetLoc} for "${cleanProduct}".*\n\n` +
       `Here are verified merchants from top market hubs that deliver to *${targetLoc}* via waybill / doorstep:\n`;
@@ -7145,15 +7197,14 @@ async function execute10CardSearch(toPhone: string, senderName: string, params: 
     const v = top5[i];
     const priceDisplay = formatListingPrice(v.price);
     const locString = v.city ? v.city : (v.state ? v.state : 'Nigeria');
-    const prodId = v.id || `prod_${v.whatsapp}`;
-    const directCatalogUrl = `${getFrontendWebUrl()}/catalog/${prodId}`;
+    const vendorStoreUrl = buildMerchantProfileUrl(v.businessName || v.whatsapp);
 
     listMsg += `*${i + 1}. ${v.businessName}* (${locString})\n`;
     if (v.product) {
       listMsg += `• Item: ${v.product}\n`;
     }
     listMsg += `• Price: ${priceDisplay}\n`;
-    listMsg += `🔗 *Product Page:* ${directCatalogUrl}\n`;
+    listMsg += `🔗 *Vendor Storefront:* ${vendorStoreUrl}\n`;
     listMsg += `─────────────────────────\n`;
   }
   listMsg += `Tap *Select Vendor* below to view vendor details and message them directly on WhatsApp.`;
@@ -7891,6 +7942,7 @@ async function handleVendorHubRouting(toPhone: string, senderName: string) {
       `Storefront: ${storeUrl}\n\n` +
       `*Performance Overview:*\n` +
       `• Search Views: *${stats.appearances}* views in discovery\n` +
+      `• Views in the last 7 days: *${stats.last7DaysAppearances}*\n` +
       `• Connected Buyers: *${stats.leadsGenerated}* direct inquiries (0% commission)\n` +
       `• Listed Products: *${stats.productCount}* active products\n` +
       `• Available Boosts: *${boostCredits}* product boost${boostCredits === 1 ? '' : 's'}\n` +
@@ -7991,6 +8043,7 @@ async function handleVendorStats(toPhone: string, senderName: string) {
     `Listed Since: ${stats.registeredSince}\n\n` +
     `*Key Metrics:*\n` +
     `• Search Views: *${stats.appearances}* views in Floate discovery\n` +
+    `• Views in the last 7 days: *${stats.last7DaysAppearances}*\n` +
     `• Direct Customer Inquiries: *${stats.leadsGenerated}* connected buyers\n` +
     `• Active Listed Items: *${stats.productCount}* products\n` +
     `• Available Product Boosts: *${boostCredits}* boosts\n` +
@@ -8407,9 +8460,7 @@ export async function handleVendorAddProductWizard(params: {
       const cleanBizSlug = bizName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
       // 1. Save to Firestore products collection
-      const prodId = `prod_${cleanPhone}_${Date.now()}`;
       const prodDoc = {
-        id: prodId,
         merchantId: cleanPhone,
         userId: cleanPhone,
         businessName: bizName,
@@ -8433,7 +8484,7 @@ export async function handleVendorAddProductWizard(params: {
         updatedAt: new Date().toISOString(),
       };
 
-      await firestoreDb.saveProductListing(prodDoc as any);
+      const savedProduct = await firestoreDb.saveProductListing(prodDoc as any);
 
       // 2. Sync to Google Sheets
       try {
@@ -8457,6 +8508,7 @@ export async function handleVendorAddProductWizard(params: {
       updateWhatsAppSession(cleanPhone, { state: 'IDLE', vendorAddDraft: undefined });
 
       const storeLink = buildMerchantProfileUrl(cleanBizSlug);
+      const productLink = buildProductUrl(savedProduct.id, bizName);
 
       const publishSuccessMsg =
         `🎉 *PRODUCT PUBLISHED LIVE ON FLOATE!* 🚀\n` +
@@ -8465,8 +8517,9 @@ export async function handleVendorAddProductWizard(params: {
         `💰 *Price:* ${draft.price}${draft.discountPrice ? ` *(Promo: ${draft.discountPrice})*` : ''}\n` +
         `📸 *Media:* Photo & Description Published\n\n` +
         `✅ **Updated in WhatsApp Merchant Hub**\n` +
-        `🌐 **Live on Frontend Storefront:**\n` +
-        `🔗 ${storeLink}\n\n` +
+        `🌐 **Direct Product Page:**\n` +
+        `🔗 ${productLink}\n\n` +
+        `🏪 **Storefront Catalog:**\n${storeLink}\n\n` +
         `Buyers searching on WhatsApp and floate.xyz can now view, share, and order this item!`;
 
       await sendWhatsAppMessage(cleanPhone, publishSuccessMsg, {
@@ -9310,7 +9363,7 @@ async function finalizeAndPublishProduct(
   // Check and unlock pending referral reward if this store was referred
   checkAndNotifyReferralUnlock(toPhone, bizName);
 
-  const productPermalink = `${getFrontendWebUrl()}/catalog/${savedProd.id}`;
+  const productPermalink = buildProductUrl(savedProd.id, bizName);
   const webStoreUrl = `${getFrontendWebUrl()}/vendor/${toPhone}`;
 
   updateWhatsAppSession(toPhone, {
@@ -11620,9 +11673,10 @@ async function handleRegistrationSteps(
   }
 
   // Save individual product entries directly into Firestore products collection
+  const productLinks: string[] = [];
   for (const item of activeProducts) {
     try {
-      await firestoreDb.saveProductListing({
+      const savedProduct = await firestoreDb.saveProductListing({
         userId: toPhone,
         businessName: bizName,
         whatsapp: toPhone,
@@ -11633,6 +11687,7 @@ async function handleRegistrationSteps(
         price: item.price,
         negotiation: 'Yes',
       });
+      productLinks.push(buildProductUrl(savedProduct.id, bizName));
     } catch (pErr) {
       console.warn('[Firestore Product Save Warning]:', pErr);
     }
@@ -11742,6 +11797,7 @@ async function handleRegistrationSteps(
     `Category: *${category}*\n\n` +
     `*Registered Products:*\n` +
     `${productListSummary}\n` +
+    (productLinks.length ? `\n*Product Pages:*\n${productLinks.join('\n')}\n` : '') +
     limitNote +
     `Inquiries: *Free & Unlimited on WhatsApp (0% commission)* ⚡\n` +
     `Status: *Active Verified Merchant* 🛡️\n` +

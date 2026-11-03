@@ -90,12 +90,13 @@ export function buildMerchantProfileUrl(
 }
 
 /**
- * Canonical product permalink URL
- * Generates: https://www.floate.xyz/p/:productId
+ * Canonical product permalink URL with both merchant and product identity.
+ * Generates: https://www.floate.xyz/p/:merchantSlug/:productId
  */
-export function buildProductUrl(productId: string): string {
+export function buildProductUrl(productId: string, merchantIdentifier: string): string {
   const base = getPublicSiteUrl();
-  return `${base}/p/${encodeURIComponent(productId)}`;
+  const merchantSlug = slugifyBusinessName(merchantIdentifier) || merchantIdentifier.trim();
+  return `${base}/p/${encodeURIComponent(merchantSlug)}/${encodeURIComponent(productId)}`;
 }
 
 /**

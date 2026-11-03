@@ -2220,7 +2220,10 @@ class SheetsDatabaseService {
     searchedPrice: string,
     searchedLocation: string,
     matchFound: boolean,
-    numberOfMatches: number
+    numberOfMatches: number,
+    matchedMerchantPhones: string[] = [],
+    matchedProductIds: string[] = [],
+    channel: 'whatsapp' | 'telegram' | 'web' = 'telegram'
   ): Promise<void> {
     const timestamp = new Date().toISOString();
     const row: SearchLogRow = {
@@ -2246,6 +2249,9 @@ class SheetsDatabaseService {
       searchedLocation: row.searchedLocation,
       matchFound: row.matchFound,
       numberOfMatches: row.numberOfMatches,
+      matchedMerchantPhones,
+      matchedProductIds,
+      channel,
       timestamp: row.timestamp,
     }).catch((err) => console.warn('[SheetsService] Firestore logSearch notice:', err));
 

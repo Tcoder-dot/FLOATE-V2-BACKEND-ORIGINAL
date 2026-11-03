@@ -1565,17 +1565,18 @@ async function handleBuyerSearch(ctx: Context, userId: number, username: string,
 
       sheetsDb.logInteraction(userId, username, 'BUYER_SEARCH_HIT', text).catch(() => {});
       sheetsDb.recordBusinessAppearances(activeListings);
-      sheetsDb.logSearch(userId, username, cleanProduct, priceLabel, locLabel, true, activeListings.length).catch(() => {});
-      firestoreDb.logSearch({
-        buyerTelegramId: userId,
-        buyerName: username,
-        searchedProduct: cleanProduct,
-        searchedPrice: priceLabel,
-        searchedLocation: locLabel,
-        matchFound: 'Yes',
-        numberOfMatches: activeListings.length,
-        timestamp: new Date().toISOString(),
-      }).catch(() => {});
+      sheetsDb.logSearch(
+        userId,
+        username,
+        cleanProduct,
+        priceLabel,
+        locLabel,
+        true,
+        activeListings.length,
+        activeListings.map((listing) => listing.whatsapp),
+        [],
+        'telegram',
+      ).catch(() => {});
       return;
     }
 
@@ -1588,16 +1589,6 @@ async function handleBuyerSearch(ctx: Context, userId: number, username: string,
 
     sheetsDb.logInteraction(userId, username, 'BUYER_SEARCH_MISS', text).catch(() => {});
     sheetsDb.logSearch(userId, username, cleanProduct, priceLabel, locLabel, false, 0).catch(() => {});
-    firestoreDb.logSearch({
-      buyerTelegramId: userId,
-      buyerName: username,
-      searchedProduct: cleanProduct,
-      searchedPrice: priceLabel,
-      searchedLocation: locLabel,
-      matchFound: 'No',
-      numberOfMatches: 0,
-      timestamp: new Date().toISOString(),
-    }).catch(() => {});
   } catch (fatalErr: any) {
     console.error(`[Buyer Search Fatal Error] Failure processing search for "${text}":`, fatalErr?.stack || fatalErr);
     await replySafe(

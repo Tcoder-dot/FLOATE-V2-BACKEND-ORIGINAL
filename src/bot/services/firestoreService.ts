@@ -340,6 +340,9 @@ export interface SearchLogDoc {
   matchFound: 'Yes' | 'No';
   numberOfMatches: number;
   timestamp: string;
+  matchedMerchantPhones?: string[];
+  matchedProductIds?: string[];
+  channel?: 'whatsapp' | 'telegram' | 'web' | string;
 }
 
 export interface ProductDoc {
@@ -359,6 +362,8 @@ export interface ProductDoc {
   quantity?: number;
   specs?: string;
   photoUrl?: string;
+  imageUrl?: string;
+  condition?: 'new' | 'used' | 'refurbished';
   visualTags?: string[];
   ocrText?: string;
   updatedAt: string;
@@ -790,6 +795,9 @@ export class FirestoreService {
           matchFound: data.matchFound || 'No',
           numberOfMatches: data.numberOfMatches || 0,
           timestamp: data.timestamp || new Date().toISOString(),
+          matchedMerchantPhones: [...new Set((data.matchedMerchantPhones || []).map(normalizePhone).filter(Boolean))],
+          matchedProductIds: [...new Set((data.matchedProductIds || []).filter(Boolean))],
+          channel: data.channel || 'telegram',
         };
         await setDoc(doc(db, 'search_logs', id), this.sanitizeForFirestore(docData));
       },
@@ -2530,6 +2538,35 @@ export class FirestoreService {
     }
   }
 
+  public async updateProductForMerchant(
+    productId: string,
+    vendorPhone: string,
+    updates: Partial<ProductDoc>,
+  ): Promise<boolean> {
+    try {
+      const ownerPhone = normalizePhone(vendorPhone);
+      if (!productId || !ownerPhone) return false;
+      const productRef = doc(db, 'products', productId);
+      const snap = await getDoc(productRef);
+      if (!snap.exists()) return false;
+
+      const product = snap.data() as ProductDoc;
+      const productPhone = normalizePhone(
+        (product as any).vendorPhone || product.whatsapp || (product as any).whatsappNumber || '',
+      );
+      if (!productPhone || productPhone !== ownerPhone) return false;
+
+      await updateDoc(productRef, this.sanitizeForFirestore({
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      }));
+      return true;
+    } catch (err) {
+      console.error(`[Firestore] Error updating product ${productId} for merchant:`, err);
+      return false;
+    }
+  }
+
   /**
    * Delete a single product by ID
    */
@@ -2550,6 +2587,7 @@ export class FirestoreService {
    */
   public async getMerchantStats(merchantIdOrPhone: string): Promise<{
     appearances: number;
+    last7DaysAppearances: number;
     leadsGenerated: number;
     productCount: number;
     balance: number;
@@ -2565,10 +2603,12 @@ export class FirestoreService {
   }> {
     const merchant = await this.getMerchant(merchantIdOrPhone);
     const products = await this.getProductsByMerchant(merchantIdOrPhone);
-    const cleanPhone = normalizePhone(merchantIdOrPhone);
-    
+    const cleanPhone = normalizePhone(merchant?.whatsapp || merchantIdOrPhone);
+
     // Count leads
     let leadsCount = 0;
+    let appearancesCount = 0;
+    let recentAppearancesCount = 0;
     try {
       const leadsCol = collection(db, 'leads');
       const lSnap = await getDocs(query(leadsCol));
@@ -2585,13 +2625,29 @@ export class FirestoreService {
       console.warn('[Firestore] Notice fetching lead count:', e);
     }
 
+    try {
+      const searchLogs = await getDocs(collection(db, 'search_logs'));
+      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      for (const searchDoc of searchLogs.docs) {
+        const search = searchDoc.data() as SearchLogDoc;
+        const matched = (search.matchedMerchantPhones || []).some((phone) => normalizePhone(phone) === cleanPhone);
+        if (!matched || !cleanPhone) continue;
+        appearancesCount++;
+        const timestamp = new Date(search.timestamp || '').getTime();
+        if (!Number.isNaN(timestamp) && timestamp >= sevenDaysAgo) recentAppearancesCount++;
+      }
+    } catch (e) {
+      console.warn('[Firestore] Notice fetching merchant search appearances:', e);
+    }
+
     return {
-      appearances: Math.max(12, products.length * 4 + leadsCount * 3),
+      appearances: appearancesCount,
+      last7DaysAppearances: recentAppearancesCount,
       leadsGenerated: leadsCount,
       productCount: products.length,
-      balance: merchant?.credit_balance ?? 25,
-      registeredSince: merchant?.claimDate || 'Jan 2026',
-      isVerified: merchant?.isVerified ?? true,
+      balance: merchant?.credit_balance ?? 0,
+      registeredSince: merchant?.registeredAt || merchant?.claimDate || 'Unknown',
+      isVerified: merchant?.isVerified ?? merchant?.verifiedStatus === 'YES',
       businessName: merchant?.businessName || 'Your Business',
       bankAccount: merchant?.bankAccount,
       totalSafePaySales: merchant?.totalSafePaySales ?? 0,

@@ -12,6 +12,7 @@ import { firestoreDb, FIRESTORE_DATABASE_INFO } from './src/bot/services/firesto
 import { whatsappAuthService } from './src/bot/services/whatsappAuthService.js';
 import { bachsPaymentService } from './src/bot/services/bachsPaymentService.js';
 import { executeSearch } from './src/bot/services/searchService.js';
+import { matchCatalogProducts } from './src/bot/services/catalogSearch.js';
 import {
   handleWhatsAppVerification,
   handleWhatsAppWebhook,
@@ -169,6 +170,8 @@ async function startServer() {
         products: 'GET /api/catalog/products',
         productDetail: 'GET /api/catalog/product/:id',
         productDetailsV1: 'GET /api/v1/products/:id',
+        updateProduct: 'PATCH /api/catalog/product/:id (requires vendorPhone)',
+        productPermalink: 'https://www.floate.xyz/p/:merchantSlug/:id',
         vendorProducts: 'GET /api/v1/vendors/:slug/products',
         merchantStatuses: 'GET /api/catalog/statuses',
         vendorProfile: 'GET /api/catalog/vendor/:phone',
@@ -198,23 +201,65 @@ async function startServer() {
         });
       }
 
-      const searchResult = await executeSearch({
-        query: searchQuery,
-        location,
-        budget,
-      });
-
+      const catalogProducts = await firestoreDb.getAllProducts();
+      const matchedProducts = matchCatalogProducts(catalogProducts, searchQuery, location);
+      const searchResult = matchedProducts.length
+        ? null
+        : await executeSearch({ query: searchQuery, location, budget });
+      const recommendationMatches = searchResult
+        ? [...searchResult.exactMatches, ...searchResult.categoryMatches]
+        : [];
+      const seenRecommendationPhones = new Set<string>();
+      const vendorRecommendations = recommendationMatches
+        .filter((vendor) => {
+          const phone = normalizePhone(vendor.whatsapp || vendor.phone || '');
+          const key = phone || vendor.id;
+          if (seenRecommendationPhones.has(key)) return false;
+          seenRecommendationPhones.add(key);
+          return true;
+        })
+        .slice(0, 10)
+        .map((vendor) => ({
+          ...vendor,
+          recommendationType: 'CATEGORY_VENDOR',
+          recommendationLabel: `Vendor who sells ${searchQuery}`,
+          matchesQuery: searchQuery,
+        }));
+      const matchedMerchantPhones = matchedProducts.length
+        ? matchedProducts.map((product) => product.vendorPhone)
+        : vendorRecommendations.map((vendor) => vendor.whatsapp || vendor.phone || '');
+      const matchedProductIds = matchedProducts.map((product) => product.id);
+      void firestoreDb.logSearch({
+        buyerTelegramId: '',
+        buyerName: 'Web Search',
+        searchedProduct: searchQuery,
+        searchedPrice: budget || '',
+        searchedLocation: location || '',
+        matchFound: matchedProducts.length || vendorRecommendations.length ? 'Yes' : 'No',
+        numberOfMatches: matchedProducts.length || vendorRecommendations.length,
+        matchedMerchantPhones,
+        matchedProductIds,
+        channel: 'web',
+        timestamp: new Date().toISOString(),
+      }).catch((error) => console.warn('[API /api/search] Search metric log notice:', error));
       return res.json({
         success: true,
-        query: searchResult.query,
-        totalMatches: searchResult.totalMatches,
-        results: searchResult.results,
-        spotlightListings: searchResult.spotlightListings,
-        organicListings: searchResult.organicListings,
-        exactMatches: searchResult.exactMatches,
-        categoryMatches: searchResult.categoryMatches,
-        moreBusinessesDeepLink: searchResult.moreBusinessesDeepLink,
-        moreBusinessesWhatsAppDeepLink: searchResult.moreBusinessesWhatsAppDeepLink,
+        query: searchQuery,
+        searchMode: matchedProducts.length ? 'PRODUCTS' : 'VENDOR_RECOMMENDATIONS',
+        matchedProducts,
+        products: matchedProducts,
+        vendorRecommendations,
+        vendorRecommendationLabel: matchedProducts.length
+          ? ''
+          : `Relevant vendors who sell products like "${searchQuery}"`,
+        totalMatches: matchedProducts.length || vendorRecommendations.length,
+        results: searchResult?.results || [],
+        spotlightListings: searchResult?.spotlightListings || [],
+        organicListings: searchResult?.organicListings || [],
+        exactMatches: searchResult?.exactMatches || [],
+        categoryMatches: searchResult?.categoryMatches || [],
+        moreBusinessesDeepLink: searchResult?.moreBusinessesDeepLink || '',
+        moreBusinessesWhatsAppDeepLink: searchResult?.moreBusinessesWhatsAppDeepLink || '',
       });
     } catch (error: any) {
       console.error('[API /api/search Error]:', error);
@@ -2589,6 +2634,7 @@ async function startServer() {
       const merchant = await firestoreDb.getMerchant(product.vendorPhone || product.whatsapp || product.merchantId);
       const vendorName = merchant?.businessName || product.businessName || product.vendorName || 'Verified Merchant';
       const vendorPhone = merchant?.whatsapp || product.whatsapp || product.vendorPhone || '';
+      const vendorSlug = slugifyBusinessName(vendorName) || normalizePhone(vendorPhone) || 'verified-store';
       const city = merchant?.city || product.city || '';
       const state = merchant?.state || product.state || '';
       const numericPrice = Number(product.numericPrice ?? product.price_naira ?? parseNumericAmount(String(product.price || '0')));
@@ -2596,12 +2642,16 @@ async function startServer() {
       const photoUrl = product.photo_url || product.photoUrl || product.imageUrl || '';
       const normalizedProduct = {
         ...product,
+        productUrl: buildProductUrl(product.id, vendorSlug),
+        vendorSlug,
         title,
         name: title,
         price_naira: numericPrice,
         numericPrice,
         formatted_price: product.formatted_price || `₦${numericPrice.toLocaleString('en-NG')}`,
         photo_url: photoUrl,
+        photoUrl,
+        imageUrl: photoUrl,
         photos: product.photos || (photoUrl ? [photoUrl] : []),
         description: product.description || product.specs || '',
         in_stock: product.in_stock !== false,
@@ -3253,6 +3303,9 @@ async function startServer() {
       // Generate Storefront URL
       const cleanSlug = slugifyBusinessName(businessName);
       const storeUrl = buildMerchantProfileUrl(businessName || canonicalPhone);
+      const initialProductUrl = savedInitialProduct?.id
+        ? buildProductUrl(savedInitialProduct.id, businessName || canonicalPhone)
+        : '';
 
       // 3. Dispatch automated celebratory WhatsApp notification
       if (isWhatsAppConfigured()) {
@@ -3261,6 +3314,7 @@ async function startServer() {
             `🎉 *Welcome to Floate for Businesses, ${businessName}!* 🏪\n\n` +
             `Your official web storefront is now active:\n` +
             `🌐 *${storeUrl}*\n\n` +
+            (initialProductUrl ? `🛍️ *Your product page:*\n${initialProductUrl}\n\n` : '') +
             `🎁 *25 Free Floate Credits* have been added to your wallet (up to 5 direct customer connections)!\n\n` +
             `When buyers across Nigeria search for your products, Floate connects them directly to your WhatsApp with zero commission.\n\n` +
             `👉 *Storefront Permalink:* ${storeUrl}\n` +
@@ -3280,6 +3334,7 @@ async function startServer() {
         message: 'Business successfully registered! 25 free credits awarded.',
         phone: canonicalPhone,
         storeUrl,
+        initialProductUrl,
         slug: cleanSlug,
         verified: true,
         isVerified: true,
@@ -3369,6 +3424,7 @@ async function startServer() {
       } catch (e) {}
 
       const storeUrl = buildMerchantProfileUrl(merchant?.businessName || canonicalPhone);
+      const productUrl = buildProductUrl(savedProduct.id, effectiveBizName);
 
       // Notify vendor on WhatsApp
       if (isWhatsAppConfigured()) {
@@ -3376,7 +3432,7 @@ async function startServer() {
           const prodMsg =
             `🛍️ *New Product Added to Storefront!* 📦\n\n` +
             `*${resolvedProductName}* (${price || '₦25,000'}) is now live on your official catalogue:\n` +
-            `🌐 *${storeUrl}*\n\n` +
+            `🌐 *Direct product page:*\n${productUrl}\n\n` +
             `Buyers searching for "${resolvedProductName}" on Floate will be connected directly to your WhatsApp!`;
           await sendWhatsAppMessage(canonicalPhone, prodMsg);
         } catch (waErr) {
@@ -3388,6 +3444,7 @@ async function startServer() {
         success: true,
         message: 'Product successfully added to storefront!',
         product: savedProduct,
+        productUrl,
         storeUrl,
       });
     } catch (err: any) {
@@ -3415,6 +3472,67 @@ async function startServer() {
     } catch (error: any) {
       console.error('[Catalog] Product condition update failed:', error);
       return res.status(500).json({ success: false, error: 'Product condition could not be updated.' });
+    }
+  });
+
+  app.patch('/api/catalog/product/:id', async (req, res) => {
+    try {
+      const productId = String(req.params.id || '').trim();
+      const vendorPhone = String(req.body?.vendorPhone || '').trim();
+      const { name, price, description, category, imageUrl, condition } = req.body || {};
+      if (!productId || !vendorPhone) {
+        return res.status(400).json({ success: false, error: 'Product ID and vendorPhone are required.' });
+      }
+
+      if (condition !== undefined && !['new', 'used', 'refurbished'].includes(String(condition).toLowerCase())) {
+        return res.status(400).json({ success: false, error: 'Condition must be new, used, or refurbished.' });
+      }
+
+      const updates: Record<string, unknown> = {};
+      if (name !== undefined) {
+        if (typeof name !== 'string' || !name.trim()) {
+          return res.status(400).json({ success: false, error: 'Product name cannot be empty.' });
+        }
+        updates.product = name.trim();
+      }
+      if (price !== undefined) {
+        updates.price = String(price).trim();
+        updates.numericPrice = parsePriceToNumber(String(price));
+      }
+      if (description !== undefined) updates.specs = String(description).trim();
+      if (category !== undefined) updates.category = String(category).trim();
+      if (imageUrl !== undefined) {
+        updates.photoUrl = String(imageUrl).trim();
+        updates.imageUrl = String(imageUrl).trim();
+      }
+      if (condition !== undefined) updates.condition = String(condition).toLowerCase();
+
+      const updated = await firestoreDb.updateProductForMerchant(
+        productId,
+        vendorPhone,
+        updates as any,
+      );
+      if (!updated) {
+        return res.status(404).json({ success: false, error: 'Product was not found for this merchant.' });
+      }
+
+      const product = (await firestoreDb.getAllProducts()).find((item) => item.id === productId);
+      if (!product) {
+        return res.json({ success: true, product: { id: productId, ...updates } });
+      }
+      return res.json({
+        success: true,
+        product: {
+          ...product,
+          name: product.product || product.name || product.title,
+          title: product.product || product.name || product.title,
+          imageUrl: product.photoUrl || product.imageUrl || product.photo_url || '',
+          description: product.specs || product.description || '',
+        },
+      });
+    } catch (error: any) {
+      console.error('[Catalog] Product update failed:', error);
+      return res.status(500).json({ success: false, error: 'Product could not be updated.' });
     }
   });
 
