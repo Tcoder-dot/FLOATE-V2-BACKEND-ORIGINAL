@@ -2831,7 +2831,7 @@ async function startServer() {
         (merchant as any)?.selfieUrl ||
         merchant?.verificationVideoUrl ||
         merchant?.photoUrl ||
-        '/assets/aistudio/floate-verified-badge.png';
+        '/brand/base-kit/layers/seal-verified-256.png';
 
       const enrichedMerchant = {
         ...(merchant || {}),

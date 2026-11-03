@@ -1415,6 +1415,15 @@ export async function parseShoppingQuery(userQuery: string): Promise<ParsedComme
     return cached.data;
   }
 
+  const needsNaturalLanguageParsing =
+    /\b(?:i|we|my|our|looking|need|want|buy|find|search|show|recommend|can|where|who|cheap|cheapest|cost|price|under|below|budget|within|around|near|from|in|at|for|to|with|deliver|delivery|seller|merchant|vendor)\b/i.test(userQuery) ||
+    /(?:₦|naira|ngn|\b\d+(?:\.\d+)?\s*(?:k|m)\b)/i.test(userQuery);
+  if (!needsNaturalLanguageParsing) {
+    const fallback = fallbackQueryParse(userQuery);
+    queryParseCache.set(normKey, { data: fallback, timestamp: Date.now() });
+    return fallback;
+  }
+
   const ai = getAIClient();
   if (!ai) {
     const fallback = fallbackQueryParse(userQuery);
@@ -3935,4 +3944,3 @@ Incoming User Message:
     detected_language: /\b(wan|fit|dey|go|make|be|how much be)\b/i.test(lower) ? 'PIDGIN' : 'ENGLISH',
   };
 }
-
