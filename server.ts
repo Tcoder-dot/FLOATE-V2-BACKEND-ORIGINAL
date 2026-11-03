@@ -54,12 +54,24 @@ import {
   extractCleanBase64,
   classifyCosRouterIntent,
 } from './src/bot/services/aiService.js';
-
+import {
+  assertPublicSiteUrl,
+  getPublicSiteUrl,
+  buildMerchantProfileUrl,
+  buildProductUrl,
+  buildRegisterUrl,
+  buildCheckoutUrl,
+  slugifyBusinessName,
+  compactBusinessName,
+} from './src/config/siteUrls.js';
 
 const currentFilename = typeof __filename !== 'undefined' ? __filename : '';
 const currentDirname = typeof __dirname !== 'undefined' ? __dirname : (currentFilename ? path.dirname(currentFilename) : process.cwd());
 
 async function startServer() {
+  // Fail loudly at startup if PUBLIC_SITE_URL is missing
+  assertPublicSiteUrl();
+
   const app = express();
   const PORT = 3000;
 
@@ -68,11 +80,31 @@ async function startServer() {
 
   // Universal CORS Middleware for www.floate.xyz, floate.xyz, subdomains, and local dev
   app.use((req, res, next) => {
-    const origin = req.headers.origin || '*';
-    res.header('Access-Control-Allow-Origin', origin);
+    const origin = req.headers.origin;
+    const publicSiteUrl = getPublicSiteUrl();
+
+    if (origin) {
+      const isAllowed =
+        origin === publicSiteUrl ||
+        origin === 'https://floate.xyz' ||
+        origin === 'https://www.floate.xyz' ||
+        /https?:\/\/(.+\.)?floate\.xyz(:\d+)?$/i.test(origin) ||
+        /\.run\.app$/i.test(origin) ||
+        origin.includes('localhost') ||
+        origin.includes('127.0.0.1');
+
+      if (isAllowed) {
+        res.header('Access-Control-Allow-Origin', origin);
+      } else {
+        res.header('Access-Control-Allow-Origin', publicSiteUrl);
+      }
+    } else {
+      res.header('Access-Control-Allow-Origin', publicSiteUrl);
+    }
+
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE, PATCH');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-api-key, x-floate-api-key');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-api-key, x-floate-api-key, x-session-token');
     if (req.method === 'OPTIONS') {
       return res.sendStatus(204);
     }
@@ -2574,8 +2606,21 @@ async function startServer() {
       let targetPhone = decodedParam;
       let merchant: any = null;
 
-      // 0. Check if rawParam is an FID (e.g. FLT-ENU-00588)
-      if (decodedParam.startsWith('FLT-')) {
+      const dDigits = decodedParam.replace(/\D/g, '');
+      const compactSlug = decodedParam.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const cleanSlug = decodedParam.toLowerCase().replace(/[-_]+/g, ' ').replace(/[^a-z0-9 ]/g, '').trim();
+
+      // 0. Direct phone lookup if pure or leading digits (7+ chars)
+      if (dDigits.length >= 7) {
+        const canonicalPhone = dDigits.startsWith('0') ? `234${dDigits.slice(1)}` : (dDigits.startsWith('234') ? dDigits : `234${dDigits}`);
+        merchant = (await firestoreDb.getMerchant(canonicalPhone)) || (await firestoreDb.getMerchant(dDigits));
+        if (merchant) {
+          targetPhone = merchant.whatsapp || canonicalPhone;
+        }
+      }
+
+      // 1. Check if rawParam is an FID (e.g. FLT-ENU-00588)
+      if (!merchant && decodedParam.startsWith('FLT-')) {
         const cred = findCredentialByFid(decodedParam);
         if (cred) {
           targetPhone = '07065599116';
@@ -2596,7 +2641,7 @@ async function startServer() {
         }
       }
 
-      // 1. Check if rawParam is a sheet identifier (e.g. sheet-1, sheet-2, sheet1, sheet_1)
+      // 2. Check if rawParam is a sheet identifier (e.g. sheet-1, sheet-2, sheet1, sheet_1)
       const sheetMatch = !merchant ? decodedParam.match(/^sheet[-_]?(\d+)$/i) : null;
       if (sheetMatch) {
         const sheetIndex = Math.max(0, parseInt(sheetMatch[1], 10) - 1);
@@ -2621,32 +2666,42 @@ async function startServer() {
         }
       }
 
-      // 2. If not a sheet identifier or not resolved yet, attempt getMerchant by phone or key
+      // 3. Direct document lookups by ID/phone/key
       if (!merchant) {
         merchant = await firestoreDb.getMerchant(targetPhone);
       }
 
-      // 3. If still null, search active merchants/listings by business slug or name
+      // 4. Search active merchants/listings by compact slug, clean slug, or phone digits
       if (!merchant) {
-        const cleanSlug = decodedParam.toLowerCase().replace(/[-_]+/g, ' ').replace(/[^a-z0-9 ]/g, '').trim();
         const allMerchants = await firestoreDb.getAllMerchantsList(500);
         const match = allMerchants.find((m) => {
           const biz = (m.businessName || '').toLowerCase().replace(/[-_]+/g, ' ').replace(/[^a-z0-9 ]/g, '').trim();
-          const mPhone = (m.whatsapp || '').replace(/\D/g, '');
-          const dPhone = decodedParam.replace(/\D/g, '');
-          return biz === cleanSlug || (cleanSlug.length > 3 && (biz.includes(cleanSlug) || cleanSlug.includes(biz))) || (dPhone.length >= 7 && mPhone.includes(dPhone));
+          const compactBiz = (m.businessName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const mPhone = (m.whatsapp || m.id || '').replace(/\D/g, '');
+          const phoneMatch = dDigits.length >= 7 && (mPhone.endsWith(dDigits.slice(-10)) || dDigits.endsWith(mPhone.slice(-10)));
+          const slugMatch =
+            compactBiz === compactSlug ||
+            biz === cleanSlug ||
+            (compactSlug.length >= 3 && (compactBiz.includes(compactSlug) || compactSlug.includes(compactBiz)));
+          return slugMatch || phoneMatch;
         });
 
         if (match) {
           merchant = match;
           targetPhone = match.whatsapp || match.id;
         } else {
+          const allListings = await sheetsDb.getAllListings();
           const sheetsListing = sheetsDb.getListingByBusinessName(decodedParam) ||
-            sheetsDb.getAllListings().find((l) => {
+            allListings.find((l) => {
               const biz = (l.businessName || '').toLowerCase().replace(/[-_]+/g, ' ').replace(/[^a-z0-9 ]/g, '').trim();
-              const lPhone = (l.whatsapp || '').replace(/\D/g, '');
-              const dPhone = decodedParam.replace(/\D/g, '');
-              return biz === cleanSlug || (cleanSlug.length > 3 && biz.includes(cleanSlug)) || (dPhone.length >= 7 && lPhone.includes(dPhone));
+              const compactBiz = (l.businessName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              const lPhone = (l.whatsapp || l.id || '').replace(/\D/g, '');
+              const phoneMatch = dDigits.length >= 7 && (lPhone.endsWith(dDigits.slice(-10)) || dDigits.endsWith(lPhone.slice(-10)));
+              const slugMatch =
+                compactBiz === compactSlug ||
+                biz === cleanSlug ||
+                (compactSlug.length >= 3 && (compactBiz.includes(compactSlug) || compactSlug.includes(compactBiz)));
+              return slugMatch || phoneMatch;
             });
 
           if (sheetsListing) {
@@ -2783,7 +2838,9 @@ async function startServer() {
         flyerUrl: credential.flyerUrl,
         squareBoostUrl: credential.squareBoostUrl,
         slug: merchantSlug,
-        cleanStoreUrl: `https://www.floate.xyz/merchant/${merchantSlug}`,
+        cleanStoreUrl: buildMerchantProfileUrl(merchantSlug || targetPhone),
+        storeUrl: buildMerchantProfileUrl(merchantSlug || targetPhone),
+        profile_url: buildMerchantProfileUrl(merchantSlug || targetPhone),
         vendorPhone: targetPhone,
         products: products || [],
         statuses: [],
@@ -2796,6 +2853,9 @@ async function startServer() {
   app.get('/api/catalog/vendor/:phone', handleVendorProfile);
   app.get('/api/catalog/merchant/:slug', handleVendorProfile);
   app.get('/api/merchant/profile/:identifier', handleVendorProfile);
+  app.get('/api/merchants/:identifier', handleVendorProfile);
+  app.get('/api/credentials/lookup/:slug', handleVendorProfile);
+  app.get('/api/vendor/:identifier', handleVendorProfile);
 
   // Daily Status Updates Feed (PAUSED)
   app.get(['/api/catalog/statuses', '/api/merchants/status-updates'], async (_req, res) => {
@@ -3028,8 +3088,8 @@ async function startServer() {
       }
 
       // Generate Storefront URL
-      const cleanSlug = businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-      const storeUrl = `https://floate.xyz/vendor/${canonicalPhone}`;
+      const cleanSlug = slugifyBusinessName(businessName);
+      const storeUrl = buildMerchantProfileUrl(businessName || canonicalPhone);
 
       // 3. Dispatch automated celebratory WhatsApp notification
       if (isWhatsAppConfigured()) {
@@ -3120,7 +3180,7 @@ async function startServer() {
         );
       } catch (e) {}
 
-      const storeUrl = `https://floate.xyz/vendor/${canonicalPhone}`;
+      const storeUrl = buildMerchantProfileUrl(merchant?.businessName || canonicalPhone);
 
       // Notify vendor on WhatsApp
       if (isWhatsAppConfigured()) {
@@ -3793,7 +3853,7 @@ async function startServer() {
       }
 
       const cleanPhone = normalizePhone(merchantId);
-      const vendorLink = `https://www.floate.xyz/vendor/${cleanPhone}`;
+      const vendorLink = buildMerchantProfileUrl(cleanPhone);
       const approvalMsg = `🎉 *Congratulations from Floate OS!*\n\nYour business registration has been *APPROVED* by admin.\n\nYour live Floate storefront is now active:\n🔗 ${vendorLink}\n\nYou can now receive qualified buyer leads and run automated ads. Welcome to Floate!`;
       try {
         await sendWhatsAppMessage(cleanPhone, approvalMsg);

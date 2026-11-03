@@ -150,6 +150,8 @@ export function VendorStorefront() {
       identifier = path.split('/merchant/')[1];
     } else if (path.includes('/vendor/')) {
       identifier = path.split('/vendor/')[1];
+    } else if (path.includes('/store/')) {
+      identifier = path.split('/store/')[1];
     } else if (path.includes('/catalog/')) {
       identifier = path.split('/catalog/')[1];
     } else if (path.startsWith('/@')) {
@@ -162,15 +164,19 @@ export function VendorStorefront() {
       identifier = params.get('vendor') || '';
     } else if (params.get('prod')) {
       identifier = params.get('prod') || '';
+    } else if (path !== '/' && path.length > 1) {
+      identifier = path.replace(/^\/+/, '');
     }
 
     if (identifier) {
-      if (path.includes('/catalog/') && (identifier.startsWith('prod_') || identifier.startsWith('FLT-'))) {
-        setSelectedProductId(identifier);
-        fetchProductDetails(identifier);
+      // Clean identifier from query strings or nested paths
+      const cleanIdentifier = decodeURIComponent(identifier.split('?')[0].split('/')[0].trim());
+      if (path.includes('/catalog/') && (cleanIdentifier.startsWith('prod_') || cleanIdentifier.startsWith('FLT-'))) {
+        setSelectedProductId(cleanIdentifier);
+        fetchProductDetails(cleanIdentifier);
       } else {
-        setVendorPhone(identifier);
-        fetchVendorProfile(identifier);
+        setVendorPhone(cleanIdentifier);
+        fetchVendorProfile(cleanIdentifier);
       }
     } else {
       fetchVendorProfile(vendorPhone);
@@ -182,12 +188,12 @@ export function VendorStorefront() {
     try {
       const res = await fetch(`/api/catalog/vendor/${encodeURIComponent(phoneOrSlug)}`);
       const data = await res.json();
-      if (data.success) {
+      if (data.success && data.merchant) {
         setMerchant(data.merchant);
         setProducts(data.products || []);
         setStatuses(data.statuses || []);
-        if (data.vendorPhone) {
-          setVendorPhone(data.vendorPhone);
+        if (data.merchant.whatsapp || data.vendorPhone) {
+          setVendorPhone(data.merchant.whatsapp || data.vendorPhone);
         }
       }
     } catch (err) {

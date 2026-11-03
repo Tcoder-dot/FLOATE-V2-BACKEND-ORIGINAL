@@ -19,6 +19,7 @@ import { firestoreDb } from './firestoreService.js';
 import { normalizePhone } from './sheetsService.js';
 import { sendWhatsAppMessage } from './whatsappService.js';
 import { config } from '../config.js';
+import { getPublicSiteUrl, buildMerchantProfileUrl, buildCertificateDownloadUrl } from '../../config/siteUrls.js';
 
 export const LAUNCH_DEADLINE_ISO = '2026-11-20T23:59:59.999Z';
 
@@ -241,7 +242,7 @@ export class MonetizationService {
       });
       return {
         success: true,
-        checkoutUrl: `https://floate.xyz/vendor/${canonicalPhone}?verified=free`,
+        checkoutUrl: `${buildMerchantProfileUrl(canonicalPhone)}?verified=free`,
         txRef: `free_verif_${canonicalPhone}`,
         amount: 0,
         packageName: tier.name,
@@ -263,7 +264,7 @@ export class MonetizationService {
       customerEmail,
       title: `Floate • ${tier.name}`,
       description: `${tier.name} for ${merchant?.businessName || canonicalPhone}`,
-      redirectUrl: params.redirectUrl || `https://floate.xyz/checkout/callback?ref=${txRef}`,
+      redirectUrl: params.redirectUrl || `${getPublicSiteUrl()}/checkout/callback?ref=${txRef}`,
       meta: {
         packageId: tier.id,
         merchantPhone: canonicalPhone,
@@ -325,7 +326,7 @@ export class MonetizationService {
       const oneMonthLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
       const currentBoosts = typeof merchant?.boostCredits === 'number' ? merchant.boostCredits : 0;
       const certificateId = `CERT-FLT-${canonicalPhone.slice(-6).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
-      const certificateUrl = `https://floate.xyz/certificate/${canonicalPhone}`;
+      const certificateUrl = buildCertificateDownloadUrl(canonicalPhone);
 
       if (merchant) {
         await firestoreDb.saveMerchant({
@@ -479,7 +480,7 @@ export class MonetizationService {
         adType: 'CATEGORY_SPONSOR',
         headline: `⭐ Top Featured ${targetCategory} Store in ${targetCity}`,
         description: `Verified merchant in ${targetCity}. Nationwide delivery & instant WhatsApp response.`,
-        targetUrl: `https://floate.xyz/vendor/${canonicalPhone}`,
+        targetUrl: buildMerchantProfileUrl(canonicalPhone),
         targetCategory,
         targetLocation: targetCity,
         status: 'ACTIVE',
@@ -509,7 +510,7 @@ export class MonetizationService {
         adType: 'HERO_BANNER',
         headline: meta?.headline || `Official Partner: ${bizName}`,
         description: meta?.description || `High-impact brand placement on FLOATE Africa OS`,
-        targetUrl: meta?.targetUrl || `https://floate.xyz/vendor/${canonicalPhone}`,
+        targetUrl: meta?.targetUrl || buildMerchantProfileUrl(canonicalPhone),
         status: 'ACTIVE',
         impressions: 0,
         clicks: 0,
@@ -569,7 +570,7 @@ export class MonetizationService {
     const certId = merchant.certificateId || `CERT-FLT-${canonical.slice(-6).toUpperCase()}`;
     const issuedAt = merchant.certificateIssuedAt || merchant.registeredAt || new Date().toISOString();
     const expiresAt = merchant.verifiedPlusExpiresAt || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
-    const verificationUrl = `https://floate.xyz/certificate/${canonical}`;
+    const verificationUrl = buildCertificateDownloadUrl(canonical);
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(verificationUrl)}`;
 
     return {

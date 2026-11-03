@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { firestoreDb } from '../bot/services/firestoreService.js';
 import { getAppBaseUrl, getFrontendWebUrl } from '../bot/services/whatsappService.js';
+import { getPublicSiteUrl } from '../config/siteUrls.js';
 
 export interface WhatsAppTokenDoc {
   id: string;
@@ -92,9 +93,9 @@ export class WhatsAppTokenService {
 
     await firestoreDb.saveWhatsAppAuthToken(tokenDoc);
 
-    const frontendBase = getFrontendWebUrl();
+    const frontendBase = getPublicSiteUrl();
     const redirectParam = params.redirectUrl ? `&redirect=${encodeURIComponent(params.redirectUrl)}` : '&redirect=/dashboard';
-    const url = `${frontendBase}/store/${encodeURIComponent(params.vendorId)}?wa_token=${rawToken}${redirectParam}`;
+    const url = `${frontendBase}/vendor/${encodeURIComponent(params.vendorId)}?wa_token=${rawToken}${redirectParam}`;
 
     console.log(`[WhatsAppTokenService] 🔑 Issued Storefront Token for Vendor ${params.vendorId} (Expires: ${expiresAt})`);
 

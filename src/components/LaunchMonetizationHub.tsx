@@ -510,96 +510,108 @@ export const LaunchMonetizationHub: React.FC = () => {
         </div>
       </div>
 
-      {/* Merchant Certificate Verification Inspector */}
-      <div className="bg-gradient-to-r from-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
-        <div>
-          <h3 className="text-xl font-bold text-white flex items-center gap-2">
-            <Award className="w-5 h-5 text-amber-400" />
-            Official Verified Plus Certificate Inspector
-          </h3>
-          <p className="text-xs text-slate-400">
-            Verify any merchant's digital certificate of trust, issue timestamp, and QR verification pass.
-          </p>
+      {/* Manage Business Hub: Instant Certificate PNG Download */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950 px-3 py-1 rounded-full border border-emerald-800">
+              ✓ Verified Store Management Hub
+            </span>
+            <h3 className="text-2xl font-black text-white tracking-tight mt-2 flex items-center gap-2">
+              <Award className="w-6 h-6 text-amber-400" />
+              Download Official Store Certificate (PNG)
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl leading-relaxed">
+              All registered Floate stores are 100% verified automatically with zero verification fees. Enter your WhatsApp phone number or business name below to instantly download your official certificate PNG with your exact business details.
+            </p>
+          </div>
         </div>
 
-        <form onSubmit={handleCheckCertificate} className="flex flex-col sm:flex-row gap-3">
+        <form onSubmit={handleCheckCertificate} className="flex flex-col sm:flex-row gap-3 pt-2">
           <input
             type="text"
-            placeholder="Enter merchant WhatsApp phone (e.g. 07065599116)"
+            placeholder="Enter your WhatsApp phone (e.g. 07065599116 or richbuild)"
             value={certPhone}
             onChange={(e) => setCertPhone(e.target.value)}
-            className="flex-1 px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-amber-400"
+            className="flex-1 px-4 py-3.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-amber-400 shadow-inner"
+            required
           />
           <button
             type="submit"
             disabled={certLoading}
-            className="px-6 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-xs transition-all flex items-center justify-center gap-2 shrink-0 border border-amber-500/30"
+            className="px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs transition-all flex items-center justify-center gap-2 shrink-0 shadow-lg shadow-amber-500/20 active:scale-95"
           >
             {certLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Award className="w-4 h-4" />}
-            Inspect Certificate
+            Download Certificate (PNG)
           </button>
         </form>
 
         {certError && (
-          <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 text-xs">
+          <div className="p-4 rounded-xl bg-rose-950/60 border border-rose-800 text-rose-300 text-xs font-medium">
             {certError}
           </div>
         )}
 
         {certData && (
-          <div className="p-6 rounded-2xl bg-slate-950 border-2 border-amber-500/40 space-y-4">
+          <div className="p-6 rounded-2xl bg-slate-950 border-2 border-emerald-500/40 space-y-5 animate-in fade-in">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 bg-amber-950 px-2.5 py-0.5 rounded-full border border-amber-800">
-                  {certData.badge}
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950 px-2.5 py-1 rounded-full border border-emerald-800">
+                  ✓ Verified Store Active
                 </span>
-                <h4 className="text-xl font-black text-white mt-1">{certData.merchantName}</h4>
+                <h4 className="text-xl font-black text-white mt-2">{certData.merchantName}</h4>
                 <div className="text-xs text-slate-400 font-mono mt-0.5">
-                  ID: {certData.certificateId} • {certData.city}, {certData.state}
+                  Store: {certData.merchantName} • {certData.city || 'Lagos'}, {certData.state || 'Nigeria'}
                 </div>
               </div>
 
-              {certData.qrCodeUrl && (
-                <div className="p-2 bg-white rounded-xl shadow-lg shrink-0">
-                  <img src={certData.qrCodeUrl} alt="Certificate QR" className="w-20 h-20" />
-                </div>
-              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <a
+                  href={`/api/credentials/${certData.certificateId || certPhone || 'store'}/download/certificate`}
+                  download
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs transition-all flex items-center gap-1.5 shadow-md"
+                >
+                  <Award className="w-4 h-4" />
+                  Download PNG Certificate ASAP
+                </a>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-3 border-t border-slate-800">
               <div>
                 <span className="text-slate-500 block">Category</span>
-                <span className="text-slate-200 font-semibold">{certData.category}</span>
-              </div>
-              <div>
-                <span className="text-slate-500 block">Issued At</span>
-                <span className="text-slate-200 font-semibold">{new Date(certData.issuedAt).toLocaleDateString()}</span>
+                <span className="text-slate-200 font-semibold">{certData.category || 'General'}</span>
               </div>
               <div>
                 <span className="text-slate-500 block">Status</span>
-                <span className="text-emerald-400 font-semibold">Active & Valid</span>
+                <span className="text-emerald-400 font-semibold">Verified Active ✓</span>
               </div>
               <div>
-                <span className="text-slate-500 block">Actions</span>
+                <span className="text-slate-500 block">Storefront URL</span>
+                <a href={`/vendor/${encodeURIComponent(certData.merchantName.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}`} className="text-amber-400 hover:underline font-mono truncate block">
+                  floate.xyz/vendor/{certData.merchantName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}
+                </a>
+              </div>
+              <div>
+                <span className="text-slate-500 block">Preview</span>
                 <button
                   type="button"
                   onClick={() => {
                     const loc = `${certData.city || ''}, ${certData.state || 'Nigeria'}`.trim();
                     const cred = createCredentialForMerchant({
-                      merchantId: certData.certificateId,
+                      merchantId: certPhone || 'store',
                       name: certData.merchantName,
                       biz: certData.merchantName,
                       loc: loc,
-                      phone: certPhone,
+                      phone: certPhone || '08031112222',
                       isPlus: true,
-                      customFid: certData.certificateId
                     });
                     setPreviewModalCredential(cred);
                   }}
                   className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1"
                 >
-                  <Award className="w-3.5 h-3.5" />
-                  View Base Kit Certificate
+                  <Eye className="w-3.5 h-3.5" />
+                  Preview Base Kit
                 </button>
               </div>
             </div>

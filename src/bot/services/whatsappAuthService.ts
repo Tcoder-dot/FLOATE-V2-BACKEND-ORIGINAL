@@ -5,6 +5,7 @@ import { redisService } from './redisService.js';
 import { normalizePhone } from './sheetsService.js';
 import { sendWhatsAppMessage } from './whatsappService.js';
 import { config } from '../config.js';
+import { getPublicSiteUrl, buildMerchantProfileUrl, buildRegisterUrl } from '../../config/siteUrls.js';
 
 export interface WhatsAppDeepLinkToken {
   id: string;
@@ -256,7 +257,7 @@ export class WhatsAppAuthService {
         `You need to register your business stall on FLOATE first before logging in.\n\n` +
         `🎁 Get **5 free customer credits** when you complete your free registration!\n\n` +
         `👉 *Tap here to register your stall on FLOATE:*\n` +
-        `https://www.floate.xyz/register`;
+        `${buildRegisterUrl()}`;
 
       try {
         await sendWhatsAppMessage(senderCanonical, unregMsg, {
@@ -334,7 +335,7 @@ export class WhatsAppAuthService {
     await redisService.set(`auth_session:${extractedCode}`, updatedSession, 600); // keep for 10 mins post-verification
     await firestoreDb.saveAuthSession(updatedSession);
 
-    const vendorWebStoreUrl = `https://www.floate.xyz/vendor/${senderCanonical}`;
+    const vendorWebStoreUrl = buildMerchantProfileUrl(vendor.businessName || senderCanonical);
 
     const autoReplyText =
       `✅ *Account verified successfully!*\n\n` +
@@ -443,7 +444,7 @@ export class WhatsAppAuthService {
         status: 'REQUIRES_REGISTRATION',
         isRegistered: false,
         phone: session.phone,
-        registrationUrl: 'https://www.floate.xyz/register',
+        registrationUrl: buildRegisterUrl(),
         error: 'Phone number is not registered as a business on FLOATE.',
       };
     }
@@ -518,8 +519,8 @@ export class WhatsAppAuthService {
     inMemoryAuthTokens.set(tokenHash, tokenDoc);
     await redisService.set(`wa_dl_token:${tokenHash}`, tokenDoc, ttlSeconds);
 
-    const baseUrl = config.appUrl || 'https://www.floate.xyz';
-    const deepLink = `${baseUrl.replace(/\/+$/, '')}/vendor/${canonical}?wa_token=${rawToken}`;
+    const baseUrl = getPublicSiteUrl();
+    const deepLink = `${baseUrl}/vendor/${canonical}?wa_token=${rawToken}`;
 
     console.log(`[WhatsApp DeepLink Auth] 🛍️ Generated storefront token for +${canonical}`);
 
@@ -583,8 +584,8 @@ export class WhatsAppAuthService {
     inMemoryAuthTokens.set(tokenHash, tokenDoc);
     await redisService.set(`wa_dl_token:${tokenHash}`, tokenDoc, ttlSeconds);
 
-    const baseUrl = config.appUrl || 'https://www.floate.xyz';
-    const checkoutUrl = `${baseUrl.replace(/\/+$/, '')}/checkout?orderId=${encodeURIComponent(cleanOrderId)}&wa_token=${rawToken}`;
+    const baseUrl = getPublicSiteUrl();
+    const checkoutUrl = `${baseUrl}/checkout?orderId=${encodeURIComponent(cleanOrderId)}&wa_token=${rawToken}`;
 
     console.log(`[WhatsApp DeepLink Auth] 💳 Generated order-bound checkout token for order ${cleanOrderId}`);
 

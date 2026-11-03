@@ -3,6 +3,7 @@
  * Generates and manages FIDs (Floate Identification IDs), verified credentials,
  * certificates, badge cards, flyers, and verification manifests per base-kit spec.
  */
+import { getPublicSiteUrl, buildMerchantProfileUrl } from '../../config/siteUrls.js';
 
 export interface FloateCredential {
   fid: string;
@@ -238,7 +239,7 @@ export function createCredentialForMerchant(params: {
     checks,
     photoUrl: params.photoUrl,
     initials,
-    verifyUrl: `https://floate.xyz/v/${fid}`,
+    verifyUrl: buildMerchantProfileUrl(params.biz || slug || fid),
     certificateUrl: `/brand/base-kit/src/certificate.html?fid=${fid}&name=${encodeURIComponent(params.name)}&biz=${encodeURIComponent(params.biz)}&loc=${encodeURIComponent(params.loc)}&date=${encodeURIComponent(today)}&tier=${params.isPlus ? 'plus' : 'basic'}&link=floate.xyz/m/${slug}&initials=${initials}`,
     badgeCardUrl: `/brand/base-kit/src/badge-card.html?fid=${fid}&biz=${encodeURIComponent(params.biz)}&loc=${encodeURIComponent(params.loc)}&link=floate.xyz/v/${fid}&initials=${initials}`,
     flyerUrl: `/brand/base-kit/src/flyer.html`,

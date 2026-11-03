@@ -1,38 +1,37 @@
 /**
  * CORS Configuration for Floate WhatsApp Commerce Engine
  * Enforces strict credentials handling for httpOnly cross-site session cookies
- * and validates allowed frontend origins without wildcards.
+ * and validates allowed frontend origins from PUBLIC_SITE_URL without wildcards.
  */
 
 import { Request, Response, NextFunction } from 'express';
-
-const ALLOWED_ORIGINS = [
-  process.env.FRONTEND_URL || 'https://www.floate.xyz',
-  'https://floate.xyz',
-  'https://www.floate.xyz',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-];
+import { getPublicSiteUrl } from './siteUrls.js';
 
 export function corsMiddleware(req: Request, res: Response, next: NextFunction) {
   const origin = req.headers.origin;
+  let publicSiteUrl = 'https://floate.xyz';
+  try {
+    publicSiteUrl = getPublicSiteUrl();
+  } catch (err) {
+    publicSiteUrl = 'https://floate.xyz';
+  }
 
-  if (origin) {
-    // Check if origin matches allowed list or subdomains of floate.xyz or cloud run preview
-    const isAllowed =
-      ALLOWED_ORIGINS.includes(origin) ||
-      /\.floate\.xyz$/i.test(origin) ||
-      /\.run\.app$/i.test(origin) ||
-      origin.includes('localhost') ||
-      origin.includes('127.0.0.1');
+  const isAllowed =
+    !origin ||
+    origin === publicSiteUrl ||
+    origin === 'https://floate.xyz' ||
+    origin === 'https://www.floate.xyz' ||
+    /https?:\/\/(.+\.)?floate\.xyz(:\d+)?$/i.test(origin) ||
+    /\.run\.app$/i.test(origin) ||
+    origin.includes('localhost') ||
+    origin.includes('127.0.0.1');
 
-    if (isAllowed) {
-      res.header('Access-Control-Allow-Origin', origin);
-    } else {
-      res.header('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0]);
-    }
+  if (origin && isAllowed) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
   } else {
-    res.header('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0]);
+    res.header('Access-Control-Allow-Origin', publicSiteUrl);
   }
 
   res.header('Access-Control-Allow-Credentials', 'true');

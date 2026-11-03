@@ -2,6 +2,7 @@ import { parseShoppingQuery, ParsedCommerceQuery } from './aiService.js';
 import { sheetsDb, BusinessListing, isSpotlightBusiness } from './sheetsService.js';
 import { meilisearchClient } from './meilisearchService.js';
 import { redisClient } from './redisService.js';
+import { getPublicSiteUrl, buildMerchantProfileUrl } from '../../config/siteUrls.js';
 
 export interface SearchInput {
   query: string;
@@ -143,8 +144,7 @@ function formatResultItem(listing: BusinessListing): MatchedVendorResult {
   const floateWaMeLink = process.env.WHATSAPP_DIRECT_LINK || 'https://wa.me/message/YYWEZAZZIXBRF1';
   const waDeepLink = `${floateWaMeLink}?text=CONNECT_VENDOR_${encodeURIComponent(listingId)}`;
 
-  const frontendBase = process.env.FRONTEND_URL || 'https://floate.xyz';
-  const webStoreUrl = `${frontendBase.replace(/\/+$/, '')}/vendor/${cleanPhone}`;
+  const webStoreUrl = buildMerchantProfileUrl(businessName || cleanPhone);
 
   let waDigits = cleanPhone;
   if (waDigits.startsWith('0')) {

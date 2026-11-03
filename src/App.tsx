@@ -60,12 +60,19 @@ export default function App() {
     } else if (
       path.includes('/catalog/') ||
       path.includes('/vendor/') ||
+      path.includes('/store/') ||
       path.includes('/merchant/') ||
       path.includes('/merchant') ||
       path.startsWith('/@') ||
       search.includes('prod=') ||
       search.includes('vendor=') ||
-      search.includes('merchant=')
+      search.includes('merchant=') ||
+      (path !== '/' &&
+        !path.includes('/admin') &&
+        !path.includes('/docs') &&
+        !path.includes('/tester') &&
+        !path.includes('/search') &&
+        !path.includes('/assets'))
     ) {
       setActiveTab('storefront');
     } else if (path.includes('/verify') || search.includes('phone=')) {

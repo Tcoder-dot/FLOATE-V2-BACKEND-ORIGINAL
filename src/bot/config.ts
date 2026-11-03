@@ -9,6 +9,7 @@ export const config = {
   adminTelegramId: process.env.ADMIN_TELEGRAM_ID || '',
   adminWhatsAppPhone: process.env.ADMIN_WHATSAPP_PHONE || '07065599116',
   appUrl: process.env.APP_URL || '',
+  publicSiteUrl: process.env.PUBLIC_SITE_URL || 'https://floate.xyz',
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '3000', 10),
   // WhatsApp Cloud API (Meta Graph API)

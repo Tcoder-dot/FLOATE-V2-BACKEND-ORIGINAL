@@ -1,5 +1,6 @@
 import express from 'express';
 import { config, isSafePayEnabledForPhone, isVerificationTestingPhone } from '../config.js';
+import { getPublicSiteUrl, buildMerchantProfileUrl, buildProductUrl, buildRegisterUrl, buildCheckoutUrl } from '../../config/siteUrls.js';
 import { sheetsDb, BusinessListing, normalizePhone, escapeMarkdownText, isSpotlightBusiness, formatListingPrice, parsePriceToNumber } from './sheetsService.js';
 import { firestoreDb, EscrowOrderDoc } from './firestoreService.js';
 import { whatsappAuthService } from './whatsappAuthService.js';
@@ -168,10 +169,7 @@ export function getAppBaseUrl(): string {
 }
 
 export function getFrontendWebUrl(): string {
-  if (process.env.FRONTEND_URL && process.env.FRONTEND_URL.startsWith('http')) {
-    return process.env.FRONTEND_URL.replace(/\/+$/, '');
-  }
-  return 'https://floate.xyz';
+  return getPublicSiteUrl();
 }
 
 export interface GpsVerificationTokenRecord {
@@ -725,7 +723,7 @@ export async function sendWhatsAppContactCard(
         ],
         urls: [
           {
-            url: 'https://floate.xyz',
+            url: getPublicSiteUrl(),
             type: 'WORK',
           },
         ],
@@ -1017,7 +1015,7 @@ export async function handleWhatsAppWebhook(req: express.Request, res: express.R
                   const ref = (flowResult as any).verificationRef || `FLT-VR-${Math.floor(100000 + Math.random() * 900000)}`;
                   const token = (flowResult as any).verificationToken || Buffer.from(`${senderPhone}_${Date.now()}`).toString('hex').slice(0, 24);
                   const cleanPhone = senderPhone.replace(/\D/g, '');
-                  const verifyUrl = `https://www.floate.xyz/verify?token=${token}&ref=${ref}&phone=${cleanPhone}`;
+                  const verifyUrl = `${getPublicSiteUrl()}/verify?token=${token}&ref=${ref}&phone=${cleanPhone}`;
 
                   await sendWhatsAppMessage(
                     senderPhone,
@@ -1111,7 +1109,7 @@ export async function handleWhatsAppWebhook(req: express.Request, res: express.R
             normalizedInput.includes('my web store') ||
             normalizedInput.includes('my store')
           ) {
-            const vendorStoreUrl = `https://www.floate.xyz/vendor/${cleanPhoneNum}`;
+            const vendorStoreUrl = buildMerchantProfileUrl(cleanPhoneNum);
             await sendWhatsAppMessage(
               senderPhone,
               `🏪 *Your Live FLOATE Web Storefront:*\n\n` +
@@ -1130,7 +1128,7 @@ export async function handleWhatsAppWebhook(req: express.Request, res: express.R
               senderPhone,
               `🏪 *Open Your Free Stall on FLOATE:*\n\n` +
               `Tap the link below to register your business in 60 seconds and unlock your verified physical stall credentials:\n` +
-              `👉 https://www.floate.xyz/register`
+              `👉 ${buildRegisterUrl()}`
             );
             continue;
           }
@@ -2120,7 +2118,7 @@ export async function handleCreateInstantSafePayDeal(
   const netVendorPayout = feeCalc.netVendorPayout;
 
   const paymentRef = `floate_instant_${escrowRef}_${Date.now()}`;
-  let checkoutLink = `https://pay.floate.xyz/safepay/${escrowRef}`;
+  let checkoutLink = buildCheckoutUrl({ escrowRef });
 
   // 1. Initialize Flutterwave Bank Transfer Checkout Link
   try {
@@ -2409,7 +2407,7 @@ export async function generateAndSendSafePayInvoice(activeRelay: RelaySession, c
   const buyerEmail = `buyer_${activeRelay.buyerPhone}@floate.xyz`;
   const paymentRef = `floate_safepay_${activeRelay.id}_${Date.now()}`;
 
-  let checkoutLink = `https://pay.floate.xyz/safepay/${activeRelay.id}`;
+  let checkoutLink = buildCheckoutUrl({ escrowRef: activeRelay.id });
   let monnifyBank = 'Wema Bank / Moniepoint MFB';
   let monnifyAcct = '0284910283';
   let monnifyAcctName = `Floate SafePay - ${activeRelay.buyerName || 'Buyer'}`;
@@ -7873,7 +7871,7 @@ async function handleVendorHubRouting(toPhone: string, senderName: string) {
     const stats = await firestoreDb.getMerchantStats(toPhone);
     const cred = await resolveCredential(toPhone);
     const fidCode = cred?.fid || (existingMerchant as any)?.fid || 'FLT-VERIFIED';
-    const storeUrl = `https://floate.xyz/v/${fidCode}`;
+    const storeUrl = buildMerchantProfileUrl(existingMerchant?.businessName || toPhone);
     const boostCredits = typeof (existingMerchant as any)?.boostCredits === 'number' ? (existingMerchant as any).boostCredits : 0;
     const isPlus = (existingMerchant as any)?.tier === 'VERIFIED_PLUS' || (existingMerchant as any)?.isVerifiedPlus;
 
@@ -8453,7 +8451,7 @@ export async function handleVendorAddProductWizard(params: {
       // Reset state
       updateWhatsAppSession(cleanPhone, { state: 'IDLE', vendorAddDraft: undefined });
 
-      const storeLink = `https://www.floate.xyz/merchant/${cleanBizSlug}`;
+      const storeLink = buildMerchantProfileUrl(cleanBizSlug);
 
       const publishSuccessMsg =
         `🎉 *PRODUCT PUBLISHED LIVE ON FLOATE!* 🚀\n` +
@@ -8537,7 +8535,7 @@ async function handleVendorTopupCustomAmount(toPhone: string, senderName: string
   let acctNumber = '';
   let acctName = `Floate Credits - ${bizName}`;
   let expiryNote = '60 Minutes';
-  let paymentLink = `https://pay.floate.xyz/credits/custom?amount=${numeric}`;
+  let paymentLink = `${getPublicSiteUrl()}/credits/custom?amount=${numeric}`;
 
   try {
     const flwBank = await flutterwaveService.initiateBankTransfer({
@@ -8647,7 +8645,7 @@ async function handleVendorTopupPackageSelection(toPhone: string, senderName: st
   let acctNumber = '';
   let acctName = `Floate Credits - ${bizName}`;
   let expiryNote = '60 Minutes';
-  let paymentLink = `https://pay.floate.xyz/credits/${pkg.id}`;
+  let paymentLink = `${getPublicSiteUrl()}/credits/${pkg.id}`;
 
   try {
     const flwBank = await flutterwaveService.initiateBankTransfer({
@@ -9025,7 +9023,7 @@ async function handleVendorMyStore(cleanPhone: string, senderName: string): Prom
   const merchant = (await firestoreDb.getMerchant(cleanPhone)) || sheetsDb.getListingByPhone(cleanPhone);
   const bizName = merchant?.businessName || cred?.biz || 'Your Store';
   const fid = cred?.fid || (merchant as any)?.fid;
-  const storeUrl = fid ? `https://floate.xyz/v/${fid}` : `https://floate.xyz/vendor/${cleanPhone}`;
+  const storeUrl = buildMerchantProfileUrl(merchant?.businessName || cleanPhone);
 
   const storeMsg =
     `🌐 *Your FLOATE Web Storefront is Live!* 🏪\n` +
