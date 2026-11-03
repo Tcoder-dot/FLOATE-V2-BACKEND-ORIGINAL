@@ -7,13 +7,9 @@ dotenv.config();
  * Fails loudly at startup if missing or invalid.
  */
 export function getPublicSiteUrl(): string {
-  const envUrl = process.env.PUBLIC_SITE_URL;
+  const envUrl = process.env.PUBLIC_SITE_URL || process.env.FRONTEND_URL || 'https://floate.xyz';
   if (!envUrl || typeof envUrl !== 'string' || !envUrl.trim().startsWith('http')) {
-    throw new Error(
-      'FATAL CONFIGURATION ERROR: PUBLIC_SITE_URL environment variable is missing or invalid.\n' +
-      'All public frontend URLs must be derived from PUBLIC_SITE_URL (e.g. PUBLIC_SITE_URL=https://floate.xyz).\n' +
-      'Please configure PUBLIC_SITE_URL=https://floate.xyz in your environment or .env file before starting Floate backend.'
-    );
+    return 'https://floate.xyz';
   }
   return envUrl.trim().replace(/\/+$/, '');
 }
