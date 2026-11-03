@@ -1,16 +1,30 @@
-import dotenv from 'dotenv';
-dotenv.config();
-
 /**
  * Single Source of Truth for all frontend / public URLs across Floate OS.
- * Reads strictly from process.env.PUBLIC_SITE_URL (e.g. https://floate.xyz).
- * Fails loudly at startup if missing or invalid.
+ * Reads safely in both Node.js server and Vite browser environments.
  */
 export function getPublicSiteUrl(): string {
-  const envUrl = process.env.PUBLIC_SITE_URL || process.env.FRONTEND_URL || 'https://floate.xyz';
+  let envUrl: string | undefined;
+
+  // 1. Check Node.js process.env
+  if (typeof process !== 'undefined' && process.env) {
+    envUrl = process.env.PUBLIC_SITE_URL || process.env.FRONTEND_URL || process.env.VITE_PUBLIC_SITE_URL;
+  }
+
+  // 2. Check Vite import.meta.env
+  if (!envUrl && typeof import.meta !== 'undefined' && (import.meta as any).env) {
+    const metaEnv = (import.meta as any).env;
+    envUrl = metaEnv.VITE_PUBLIC_SITE_URL || metaEnv.PUBLIC_SITE_URL || metaEnv.VITE_FLOATE_BACKEND_URL;
+  }
+
+  // 3. Check browser window location
+  if (!envUrl && typeof window !== 'undefined' && window.location && window.location.origin) {
+    envUrl = window.location.origin;
+  }
+
   if (!envUrl || typeof envUrl !== 'string' || !envUrl.trim().startsWith('http')) {
     return 'https://floate.xyz';
   }
+
   return envUrl.trim().replace(/\/+$/, '');
 }
 

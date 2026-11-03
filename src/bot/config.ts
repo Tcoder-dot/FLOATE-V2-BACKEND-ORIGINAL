@@ -1,5 +1,12 @@
 import dotenv from 'dotenv';
-dotenv.config();
+
+if (typeof process !== 'undefined' && typeof (process as any).cwd === 'function') {
+  try {
+    dotenv.config();
+  } catch (e) {
+    // Ignore dotenv initialization error in browser context
+  }
+}
 
 export const config = {
   telegramToken: process.env.TELEGRAM_BOT_TOKEN || '',
