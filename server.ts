@@ -8,7 +8,7 @@ import { getBotInstance } from './src/bot/bot.js';
 import { statsManager } from './src/bot/statsManager.js';
 import { processSimulatedMessage } from './src/bot/services/botSimulator.js';
 import { sheetsDb, normalizePhone, parsePriceToNumber } from './src/bot/services/sheetsService.js';
-import { firestoreDb } from './src/bot/services/firestoreService.js';
+import { firestoreDb, FIRESTORE_DATABASE_INFO } from './src/bot/services/firestoreService.js';
 import { whatsappAuthService } from './src/bot/services/whatsappAuthService.js';
 import { bachsPaymentService } from './src/bot/services/bachsPaymentService.js';
 import { executeSearch } from './src/bot/services/searchService.js';
@@ -23,6 +23,7 @@ import {
   getGpsVerificationRecord,
   generateGpsVerificationToken,
   sendMerchantVisualAssetsToWhatsApp,
+  parseNumericAmount,
 } from './src/bot/services/whatsappService.js';
 import { saveCatalogMedia } from './src/bot/services/mediaStorageService.js';
 import { getRelaySessionById } from './src/bot/services/whatsappStateManager.js';
@@ -145,6 +146,8 @@ async function startServer() {
       handshake: 'SUCCESSFUL',
       service: 'Floate Multi-Channel Commerce Engine',
       version: '2.5.0-handshake',
+      database: FIRESTORE_DATABASE_INFO,
+      publicSiteUrl: getPublicSiteUrl(),
       clientOrigin,
       corsAllowed: true,
       timestamp: new Date().toISOString(),
@@ -165,6 +168,8 @@ async function startServer() {
         handshake: 'GET /api/handshake',
         products: 'GET /api/catalog/products',
         productDetail: 'GET /api/catalog/product/:id',
+        productDetailsV1: 'GET /api/v1/products/:id',
+        vendorProducts: 'GET /api/v1/vendors/:slug/products',
         merchantStatuses: 'GET /api/catalog/statuses',
         vendorProfile: 'GET /api/catalog/vendor/:phone',
         search: 'GET or POST /api/search?q={keyword}&location={city}',
@@ -1178,10 +1183,11 @@ async function startServer() {
   });
 
   // 3c-1j. Floate Base Kit - Public Merchant Verification API (floate.xyz/v/:fid)
-  app.get(['/api/v1/verify/:fid', '/api/verify/:fid'], async (req, res) => {
+  app.get(['/api/v1/verify/:fid', '/api/verify/:fid'], async (req, res, next) => {
     try {
       const { fid } = req.params;
       const cleanFid = String(fid || '').trim().toUpperCase();
+      if (cleanFid === 'SESSION') return next();
 
       // 1. Check built-in sample credentials
       const foundSample = findCredentialByFid(cleanFid);
@@ -2554,7 +2560,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/catalog/product/:id', async (req, res) => {
+  app.get(['/api/catalog/product/:id', '/api/v1/products/:id'], async (req, res) => {
     try {
       const productId = req.params.id;
       let products = await firestoreDb.getAllProducts();
@@ -2581,9 +2587,37 @@ async function startServer() {
       }
 
       const merchant = await firestoreDb.getMerchant(product.vendorPhone || product.whatsapp || product.merchantId);
+      const vendorName = merchant?.businessName || product.businessName || product.vendorName || 'Verified Merchant';
+      const vendorPhone = merchant?.whatsapp || product.whatsapp || product.vendorPhone || '';
+      const city = merchant?.city || product.city || '';
+      const state = merchant?.state || product.state || '';
+      const numericPrice = Number(product.numericPrice ?? product.price_naira ?? parseNumericAmount(String(product.price || '0')));
+      const title = product.title || product.name || product.product || 'Product';
+      const photoUrl = product.photo_url || product.photoUrl || product.imageUrl || '';
+      const normalizedProduct = {
+        ...product,
+        title,
+        name: title,
+        price_naira: numericPrice,
+        numericPrice,
+        formatted_price: product.formatted_price || `₦${numericPrice.toLocaleString('en-NG')}`,
+        photo_url: photoUrl,
+        photos: product.photos || (photoUrl ? [photoUrl] : []),
+        description: product.description || product.specs || '',
+        in_stock: product.in_stock !== false,
+        vendor: {
+          slug: slugifyBusinessName(vendorName) || normalizePhone(vendorPhone),
+          name: vendorName,
+          city,
+          state,
+          verified: merchant?.isVerified === true || merchant?.verifiedStatus === 'YES',
+          whatsapp_number: vendorPhone,
+          avatar_url: merchant?.profilePhotoUrl || merchant?.photoUrl || '',
+        },
+      };
       return res.json({
         success: true,
-        product,
+        product: normalizedProduct,
         merchant: merchant || {
           businessName: product.businessName || 'Verified Merchant',
           whatsapp: product.whatsapp || product.vendorPhone,
@@ -2850,12 +2884,111 @@ async function startServer() {
     }
   };
 
-  app.get('/api/catalog/vendor/:phone', handleVendorProfile);
+  app.get(['/api/catalog/vendor/:phone', '/api/v1/vendors/:slug'], handleVendorProfile);
   app.get('/api/catalog/merchant/:slug', handleVendorProfile);
   app.get('/api/merchant/profile/:identifier', handleVendorProfile);
   app.get('/api/merchants/:identifier', handleVendorProfile);
   app.get('/api/credentials/lookup/:slug', handleVendorProfile);
   app.get('/api/vendor/:identifier', handleVendorProfile);
+
+  app.get('/api/catalog/merchants', async (_req, res) => {
+    try {
+      const merchants = await firestoreDb.getAllMerchantsForAdmin();
+      const publicMerchants = merchants
+        .filter((merchant) =>
+          (merchant.isVerified === true || merchant.verifiedStatus === 'YES') &&
+          merchant.status !== 'INACTIVE' &&
+          merchant.status !== 'PENDING_REVIEW'
+        )
+        .map((merchant) => ({
+          id: merchant.id,
+          slug: slugifyBusinessName(merchant.businessName || ''),
+          businessName: merchant.businessName || '',
+          name: merchant.businessName || '',
+          whatsapp: normalizePhone(merchant.whatsapp || merchant.id),
+          whatsappNumber: normalizePhone(merchant.whatsapp || merchant.id),
+          phone: normalizePhone(merchant.whatsapp || merchant.id),
+          state: merchant.state || '',
+          city: merchant.city || '',
+          category: merchant.category || '',
+          marketHub: merchant.marketHub || '',
+          location: merchant.shopAddress || '',
+          description: merchant.description || '',
+          bio: merchant.description || '',
+          product: merchant.product || '',
+          profilePhotoUrl: merchant.profilePhotoUrl || merchant.photoUrl || '',
+          isVerified: true,
+          verified: true,
+        }));
+      return res.json({ success: true, merchants: publicMerchants, total: publicMerchants.length });
+    } catch (error) {
+      console.error('[Catalog] Failed to list public merchants:', error);
+      return res.status(500).json({ success: false, error: 'Merchant directory could not be loaded.' });
+    }
+  });
+
+  app.get(
+    ['/api/catalog/vendor/:phone/products', '/api/v1/vendors/:slug/products'],
+    async (req, res) => {
+      try {
+        const identifier = String(req.params.phone || req.params.slug || '').trim();
+        const requestedPhone = normalizePhone(identifier);
+        const merchants = await firestoreDb.getAllMerchantsForAdmin();
+        const merchant = merchants.find((item) =>
+          normalizePhone(item.whatsapp || item.id) === requestedPhone ||
+          slugifyBusinessName(item.businessName || '').toLowerCase() === identifier.toLowerCase() ||
+          String(item.id || '').toLowerCase() === identifier.toLowerCase()
+        );
+        if (!merchant) {
+          return res.status(404).json({ success: false, error: 'Merchant not found' });
+        }
+
+        const merchantPhone = merchant.whatsapp || merchant.id;
+        const merchantSlug = slugifyBusinessName(merchant.businessName || '') || normalizePhone(merchantPhone);
+        const allProducts = await firestoreDb.getAllProducts(merchantPhone);
+        const pageSize = 12;
+        const pageNumber = Math.max(1, Number(String(req.query.cursor || '').replace('page_', '')) || 1);
+        const offset = (pageNumber - 1) * pageSize;
+        const products = allProducts.slice(offset, offset + pageSize).map((product: any) => {
+          const price = Number(product.numericPrice ?? product.price_naira ?? parseNumericAmount(String(product.price || '0')));
+          const title = product.title || product.name || product.product || 'Product';
+          const photoUrl = product.photo_url || product.photoUrl || product.imageUrl || '';
+          return {
+            ...product,
+            id: product.id,
+            title,
+            name: title,
+            price_naira: price,
+            formatted_price: product.formatted_price || `₦${price.toLocaleString('en-NG')}`,
+            photo_url: photoUrl,
+            photos: product.photos || (photoUrl ? [photoUrl] : []),
+            description: product.description || product.specs || '',
+            in_stock: product.in_stock !== false,
+            vendor: {
+              slug: merchantSlug,
+              name: merchant.businessName,
+              city: merchant.city || '',
+              state: merchant.state || '',
+              verified: merchant.isVerified === true || merchant.verifiedStatus === 'YES',
+              whatsapp_number: merchantPhone,
+              avatar_url: merchant.profilePhotoUrl || merchant.photoUrl || '',
+            },
+          };
+        });
+
+        return res.json({
+          success: true,
+          vendor_slug: merchantSlug,
+          products,
+          total_products: allProducts.length,
+          next_cursor: allProducts.length > offset + pageSize ? `page_${pageNumber + 1}` : null,
+        });
+      } catch (error: any) {
+        console.error('[Catalog] Failed to fetch merchant products:', error);
+        return res.status(500).json({ success: false, error: 'Merchant products could not be loaded.' });
+      }
+    }
+  );
 
   // Daily Status Updates Feed (PAUSED)
   app.get(['/api/catalog/statuses', '/api/merchants/status-updates'], async (_req, res) => {
@@ -2991,6 +3124,13 @@ async function startServer() {
         category,
         marketHub,
         shopAddress,
+        stallAddress,
+        hasPhysicalStore,
+        storeType,
+        coordinates,
+        description,
+        selfieUrl,
+        profilePhoto,
         initialProduct,
       } = req.body || {};
       const cleanPhone = (phone || '').replace(/\D/g, '');
@@ -3004,6 +3144,22 @@ async function startServer() {
       const resolvedCity = city || (location ? location.split(',')[0]?.trim() : 'Lagos') || 'Lagos';
       const resolvedLocation = `${resolvedCity}, ${resolvedState}`;
       const resolvedCategory = category || 'General Commerce';
+      const profileImage = String(selfieUrl || profilePhoto || '');
+      let profilePhotoUrl = profileImage.startsWith('http') ? profileImage : '';
+      const base64Image = profileImage.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s);
+      if (base64Image) {
+        try {
+          const extension = base64Image[1].split('/')[1].replace('jpeg', 'jpg');
+          const savedMedia = await saveCatalogMedia(
+            Buffer.from(base64Image[2], 'base64'),
+            base64Image[1],
+            `merchant_${cleanPhone}_${Date.now()}.${extension}`
+          );
+          profilePhotoUrl = savedMedia.publicUrl;
+        } catch (mediaError) {
+          console.warn('[Registration Profile Photo Warning]:', mediaError);
+        }
+      }
 
       // 1. Save / Update Merchant in Firestore
       const merchantDoc = {
@@ -3014,8 +3170,13 @@ async function startServer() {
         city: resolvedCity,
         state: resolvedState,
         category: resolvedCategory,
-        marketHub: marketHub || shopAddress || 'Main Market',
-        shopAddress: shopAddress || resolvedLocation,
+        marketHub: marketHub || stallAddress || shopAddress || 'Main Market',
+        shopAddress: stallAddress || shopAddress || resolvedLocation,
+        hasPhysicalStore: hasPhysicalStore !== false,
+        storeType: storeType || (hasPhysicalStore === false ? 'online_dispatch' : 'physical_store'),
+        coordinates: coordinates || null,
+        description: description || '',
+        profilePhotoUrl,
         isVerified: true,
         verificationStatus: 'ACTIVE',
         status: 'ACTIVE',
@@ -3046,11 +3207,13 @@ async function startServer() {
 
       // 2. Save Initial Product if provided
       let savedInitialProduct = null;
-      if (initialProduct && initialProduct.product) {
+      const initialProductName = initialProduct?.product || initialProduct?.name || initialProduct?.title;
+      if (initialProductName) {
         let photoUrl = initialProduct.photoUrl || '';
-        if (!photoUrl && initialProduct.photoBase64) {
+        const initialImage = initialProduct.photoBase64 || initialProduct.image || initialProduct.imageUrl || '';
+        if (!photoUrl && initialImage.startsWith('data:image/')) {
           try {
-            const buffer = Buffer.from(initialProduct.photoBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+            const buffer = Buffer.from(initialImage.replace(/^data:image\/\w+;base64,/, ''), 'base64');
             const savedMedia = await saveCatalogMedia(buffer, 'image/jpeg', `prod_${cleanPhone}_${Date.now()}`);
             photoUrl = savedMedia.publicUrl;
           } catch (mErr) {
@@ -3065,7 +3228,7 @@ async function startServer() {
           state: resolvedState,
           city: resolvedCity,
           category: resolvedCategory,
-          product: initialProduct.product,
+          product: initialProductName,
           price: initialProduct.price || '₦25,000',
           specs: initialProduct.description || 'Verified product from stock',
           photoUrl: photoUrl || undefined,
@@ -3074,7 +3237,7 @@ async function startServer() {
         try {
           await sheetsDb.addNewProductListing(
             canonicalPhone,
-            initialProduct.product,
+            initialProductName,
             initialProduct.price || '25000',
             {
               businessName,
@@ -3109,12 +3272,18 @@ async function startServer() {
         }
       }
 
+      sendMerchantVisualAssetsToWhatsApp(canonicalPhone, ownerName || businessName, businessName, resolvedLocation)
+        .catch((assetError) => console.warn('[Registration Asset Push Warning]:', assetError));
+
       return res.json({
         success: true,
         message: 'Business successfully registered! 25 free credits awarded.',
         phone: canonicalPhone,
         storeUrl,
         slug: cleanSlug,
+        verified: true,
+        isVerified: true,
+        verification_status: 'verified',
         creditsAwarded: 25,
         initialProduct: savedInitialProduct,
       });
@@ -3127,10 +3296,28 @@ async function startServer() {
   // 3j-2. Add Product directly from Storefront
   app.post('/api/catalog/product', async (req, res) => {
     try {
-      const { phone, businessName, product, price, category, specs, description, photoUrl, photoBase64 } = req.body || {};
-      const cleanPhone = String(phone || '').replace(/\D/g, '');
+      const {
+        phone,
+        vendorPhone,
+        identifier,
+        businessName,
+        product,
+        name,
+        title,
+        price,
+        category,
+        specs,
+        description,
+        photoUrl,
+        imageUrl,
+        image,
+        photoBase64,
+      } = req.body || {};
+      const resolvedPhone = phone || vendorPhone || identifier;
+      const resolvedProductName = product || name || title;
+      const cleanPhone = String(resolvedPhone || '').replace(/\D/g, '');
 
-      if (!cleanPhone || !product) {
+      if (!cleanPhone || !resolvedProductName) {
         return res.status(400).json({ success: false, error: 'Phone number and Product Name are required.' });
       }
 
@@ -3141,10 +3328,11 @@ async function startServer() {
       const effectiveCity = merchant?.city || 'Lagos';
       const effectiveCategory = category || merchant?.category || 'General';
 
-      let resolvedPhotoUrl = photoUrl || '';
-      if (!resolvedPhotoUrl && photoBase64) {
+      let resolvedPhotoUrl = photoUrl || imageUrl || image || '';
+      const submittedImage = photoBase64 || (resolvedPhotoUrl.startsWith('data:image/') ? resolvedPhotoUrl : '');
+      if (submittedImage) {
         try {
-          const buffer = Buffer.from(photoBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+          const buffer = Buffer.from(submittedImage.replace(/^data:image\/\w+;base64,/, ''), 'base64');
           const savedMedia = await saveCatalogMedia(buffer, 'image/jpeg', `prod_${canonicalPhone}_${Date.now()}`);
           resolvedPhotoUrl = savedMedia.publicUrl;
         } catch (mErr) {
@@ -3159,7 +3347,7 @@ async function startServer() {
         state: effectiveState,
         city: effectiveCity,
         category: effectiveCategory,
-        product,
+        product: resolvedProductName,
         price: price || '₦25,000',
         specs: description || specs || 'Verified quality product from stock',
         photoUrl: resolvedPhotoUrl || undefined,
@@ -3168,7 +3356,7 @@ async function startServer() {
       try {
         await sheetsDb.addNewProductListing(
           canonicalPhone,
-          product,
+          resolvedProductName,
           price || '25000',
           {
             businessName: effectiveBizName,
@@ -3187,9 +3375,9 @@ async function startServer() {
         try {
           const prodMsg =
             `🛍️ *New Product Added to Storefront!* 📦\n\n` +
-            `*${product}* (${price || '₦25,000'}) is now live on your official catalogue:\n` +
+            `*${resolvedProductName}* (${price || '₦25,000'}) is now live on your official catalogue:\n` +
             `🌐 *${storeUrl}*\n\n` +
-            `Buyers searching for "${product}" on Floate will be connected directly to your WhatsApp!`;
+            `Buyers searching for "${resolvedProductName}" on Floate will be connected directly to your WhatsApp!`;
           await sendWhatsAppMessage(canonicalPhone, prodMsg);
         } catch (waErr) {
           console.warn('[Add Product WhatsApp Notice Warning]:', waErr);
@@ -3205,6 +3393,28 @@ async function startServer() {
     } catch (err: any) {
       console.error('[Add Product Error]:', err);
       return res.status(500).json({ success: false, error: err?.message || 'Failed to add product' });
+    }
+  });
+
+  app.patch('/api/catalog/product/:id/condition', async (req, res) => {
+    try {
+      const productId = String(req.params.id || '').trim();
+      const vendorPhone = String(req.body?.vendorPhone || '').trim();
+      const condition = String(req.body?.condition || '').trim().toLowerCase();
+      if (!productId || !vendorPhone || !['new', 'used', 'refurbished'].includes(condition)) {
+        return res.status(400).json({ success: false, error: 'Product, merchant phone, and valid condition are required.' });
+      }
+
+      const updated = await firestoreDb.updateProductCondition(
+        productId,
+        vendorPhone,
+        condition as 'new' | 'used' | 'refurbished'
+      );
+      if (!updated) return res.status(404).json({ success: false, error: 'Product was not found for this merchant.' });
+      return res.json({ success: true, product: { id: productId, condition } });
+    } catch (error: any) {
+      console.error('[Catalog] Product condition update failed:', error);
+      return res.status(500).json({ success: false, error: 'Product condition could not be updated.' });
     }
   });
 
@@ -3880,6 +4090,142 @@ async function startServer() {
       return res.json({ success: true, message: `Merchant ${merchantId} rejected.` });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed to reject merchant' });
+    }
+  });
+
+  app.get('/api/v1/admin/verifications', async (req, res) => {
+    try {
+      const allMerchants = await firestoreDb.getAllMerchantsForAdmin();
+      const uniqueMerchants = new Map<string, any>();
+      for (const merchant of allMerchants) {
+        const phone = normalizePhone(merchant.whatsapp || merchant.id);
+        const key = phone || String(merchant.id || '');
+        if (key && !uniqueMerchants.has(key)) uniqueMerchants.set(key, merchant);
+      }
+
+      const records = Array.from(uniqueMerchants.entries()).map(([phone, merchant]) => {
+        const rejected = merchant.verifiedStatus === 'REJECTED' || merchant.status === 'INACTIVE';
+        const approved = !rejected && (
+          merchant.isVerified === true ||
+          merchant.verifiedStatus === 'YES' ||
+          merchant.status === 'ACTIVE'
+        );
+        return {
+          id: phone,
+          vendor_id: phone,
+          owner_name: merchant.ownerFullName || merchant.ownerName || '',
+          business_name: merchant.businessName || merchant.name || '',
+          market: merchant.marketHub || merchant.marketLocation || '',
+          city: merchant.city || '',
+          landmark: merchant.shopAddress || merchant.stallAddress || '',
+          whatsapp: merchant.whatsapp || phone,
+          selfie_video_url: merchant.verificationVideoUrl || '',
+          product_photo_urls: merchant.productPhotoUrls || [],
+          status: rejected ? 'rejected' : approved ? 'approved' : 'pending_review',
+          created_at: merchant.registeredAt || merchant.claimDate || merchant.updatedAt || '',
+          rejection_reason: merchant.rejectionReason || '',
+        };
+      });
+      const requestedStatus = String(req.query.status || 'pending_review').toLowerCase();
+      const filtered = requestedStatus === 'all'
+        ? records
+        : records.filter((merchant) => merchant.status === requestedStatus);
+      return res.json({ success: true, verifications: filtered, total: filtered.length });
+    } catch (error: any) {
+      console.error('[Admin Verifications] Failed to list merchants:', error);
+      return res.status(500).json({ success: false, error: 'Could not load merchant verification records.' });
+    }
+  });
+
+  app.post('/api/v1/admin/verifications/:vendorId/approve', async (req, res) => {
+    try {
+      const vendorId = decodeURIComponent(req.params.vendorId);
+      const merchant = await firestoreDb.getMerchant(vendorId);
+      const phone = normalizePhone(merchant?.whatsapp || vendorId);
+      if (!phone || !(await firestoreDb.verifyMerchantByAdmin(vendorId))) {
+        return res.status(404).json({ success: false, message: 'Merchant not found.' });
+      }
+
+      const storeUrl = buildMerchantProfileUrl(merchant?.businessName || phone);
+      const notificationErrors: string[] = [];
+      if (isWhatsAppConfigured()) {
+        try {
+          const messageSent = await sendWhatsAppMessage(
+            phone,
+            `🎉 Your FLOATE merchant verification is approved. Your storefront is live: ${storeUrl}`
+          );
+          if (!messageSent) notificationErrors.push('approval_message');
+        } catch (error) {
+          console.error('[Admin Verifications] Approval message failed after approval:', error);
+          notificationErrors.push('approval_message');
+        }
+      } else {
+        notificationErrors.push('whatsapp_not_configured');
+      }
+      try {
+        const assetsSent = await sendMerchantVisualAssetsToWhatsApp(
+          phone,
+          merchant?.ownerFullName,
+          merchant?.businessName,
+          [merchant?.city, merchant?.state].filter(Boolean).join(', ')
+        );
+        if (!assetsSent) notificationErrors.push('visual_assets');
+      } catch (error) {
+        console.error('[Admin Verifications] Asset delivery failed after approval:', error);
+        notificationErrors.push('visual_assets');
+      }
+      return res.json({
+        success: true,
+        message: notificationErrors.length
+          ? 'Merchant approved, but one or more WhatsApp notifications failed.'
+          : 'Merchant approved and notified on WhatsApp.',
+        notificationErrors,
+        storeUrl,
+      });
+    } catch (error: any) {
+      console.error('[Admin Verifications] Approval failed:', error);
+      return res.status(500).json({ success: false, message: 'Could not approve merchant.' });
+    }
+  });
+
+  app.post('/api/v1/admin/verifications/:vendorId/reject', async (req, res) => {
+    try {
+      const vendorId = decodeURIComponent(req.params.vendorId);
+      const reason = String(req.body?.reason || 'Your verification request was not approved.');
+      const merchant = await firestoreDb.getMerchant(vendorId);
+      const phone = normalizePhone(merchant?.whatsapp || vendorId);
+      if (!phone || !(await firestoreDb.rejectMerchantByAdmin(vendorId, reason))) {
+        return res.status(404).json({ success: false, message: 'Merchant not found.' });
+      }
+      if (isWhatsAppConfigured()) {
+        try {
+          const notificationSent = await sendWhatsAppMessage(phone, `Your FLOATE verification was not approved. Reason: ${reason}`);
+          if (!notificationSent) {
+            return res.json({
+              success: true,
+              message: 'Merchant verification was rejected, but the WhatsApp notice could not be sent.',
+              notificationSent: false,
+            });
+          }
+        } catch (error) {
+          console.error('[Admin Verifications] Rejection message failed after rejection:', error);
+          return res.json({
+            success: true,
+            message: 'Merchant verification was rejected, but the WhatsApp notice could not be sent.',
+            notificationSent: false,
+          });
+        }
+      } else {
+        return res.json({
+          success: true,
+          message: 'Merchant verification was rejected, but WhatsApp is not configured.',
+          notificationSent: false,
+        });
+      }
+      return res.json({ success: true, message: 'Merchant verification rejected and notice sent.', notificationSent: true });
+    } catch (error: any) {
+      console.error('[Admin Verifications] Rejection failed:', error);
+      return res.status(500).json({ success: false, message: 'Could not reject merchant.' });
     }
   });
 

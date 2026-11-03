@@ -159,13 +159,17 @@ export function setPublicAppUrl(url: string) {
 }
 
 export function getAppBaseUrl(): string {
-  if (process.env.APP_URL && process.env.APP_URL.startsWith('http')) {
-    return process.env.APP_URL.replace(/\/+$/, '');
+  const configuredBackendUrl =
+    process.env.BACKEND_PUBLIC_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    process.env.APP_URL;
+  if (configuredBackendUrl && configuredBackendUrl.startsWith('http')) {
+    return configuredBackendUrl.replace(/\/+$/, '');
   }
   if (currentPublicBaseUrl && currentPublicBaseUrl.startsWith('http')) {
     return currentPublicBaseUrl;
   }
-  return 'https://ais-dev-x4au4kqaq2sjd2khsnimym-30407813593.europe-west2.run.app';
+  return process.env.FLOATE_BACKEND_URL || 'https://floate-v2-backend-original.onrender.com';
 }
 
 export function getFrontendWebUrl(): string {
@@ -289,7 +293,7 @@ export async function sendMerchantVisualAssetsToWhatsApp(
   merchantName?: string,
   storeName?: string,
   location?: string
-) {
+): Promise<boolean> {
   try {
     const cleanPhone = toPhone.replace(/\D/g, '');
     const merchant = await firestoreDb.getMerchant(cleanPhone);
@@ -312,7 +316,7 @@ export async function sendMerchantVisualAssetsToWhatsApp(
     console.log(`[Auto WhatsApp Asset Push] 📜 Pushing official certificate directly to +${cleanPhone} (${credential.fid})`);
 
     // Send only the official certificate image as requested by user
-    await sendWhatsAppMessage(cleanPhone, '', {
+    return await sendWhatsAppMessage(cleanPhone, '', {
       image: {
         url: certImgUrl,
         caption: `📜 *Official Certificate of Verification & Trust*\nStore: *${finalBizName}*\nFID: *${credential.fid}*\n\nYour verified store certificate is ready. You can download or print this official certificate anytime!`,
@@ -320,6 +324,7 @@ export async function sendMerchantVisualAssetsToWhatsApp(
     });
   } catch (err) {
     console.error('[sendMerchantVisualAssetsToWhatsApp Error]:', err);
+    return false;
   }
 }
 

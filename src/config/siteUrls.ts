@@ -13,7 +13,7 @@ export function getPublicSiteUrl(): string {
   // 2. Check Vite import.meta.env
   if (!envUrl && typeof import.meta !== 'undefined' && (import.meta as any).env) {
     const metaEnv = (import.meta as any).env;
-    envUrl = metaEnv.VITE_PUBLIC_SITE_URL || metaEnv.PUBLIC_SITE_URL || metaEnv.VITE_FLOATE_BACKEND_URL;
+    envUrl = metaEnv.VITE_PUBLIC_SITE_URL || metaEnv.PUBLIC_SITE_URL;
   }
 
   // 3. Check browser window location
@@ -22,7 +22,7 @@ export function getPublicSiteUrl(): string {
   }
 
   if (!envUrl || typeof envUrl !== 'string' || !envUrl.trim().startsWith('http')) {
-    return 'https://floate.xyz';
+    return 'https://www.floate.xyz';
   }
 
   return envUrl.trim().replace(/\/+$/, '');
@@ -91,11 +91,11 @@ export function buildMerchantProfileUrl(
 
 /**
  * Canonical product permalink URL
- * Generates: https://floate.xyz/catalog/:productId
+ * Generates: https://www.floate.xyz/p/:productId
  */
 export function buildProductUrl(productId: string): string {
   const base = getPublicSiteUrl();
-  return `${base}/catalog/${encodeURIComponent(productId)}`;
+  return `${base}/p/${encodeURIComponent(productId)}`;
 }
 
 /**

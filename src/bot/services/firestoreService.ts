@@ -59,6 +59,11 @@ if (process.env.FIREBASE_DATABASE_ID) firebaseConfig.firestoreDatabaseId = proce
 if (process.env.FIREBASE_AUTH_DOMAIN) firebaseConfig.authDomain = process.env.FIREBASE_AUTH_DOMAIN;
 if (process.env.FIREBASE_STORAGE_BUCKET) firebaseConfig.storageBucket = process.env.FIREBASE_STORAGE_BUCKET;
 
+export const FIRESTORE_DATABASE_INFO = {
+  projectId: firebaseConfig.projectId,
+  databaseId: firebaseConfig.firestoreDatabaseId || '(default)',
+};
+
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const db = firebaseConfig.firestoreDatabaseId
   ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
@@ -172,6 +177,7 @@ export interface MerchantDoc {
   state?: string;
   city?: string;
   category?: string;
+  description?: string;
   listingType?: string;
   isVerified?: boolean;
   identityVerified?: boolean;
@@ -4610,6 +4616,24 @@ export class FirestoreService {
     }
   }
 
+  public async updateProductCondition(
+    productId: string,
+    vendorPhone: string,
+    condition: 'new' | 'used' | 'refurbished'
+  ): Promise<boolean> {
+    const phone = normalizePhone(vendorPhone);
+    const productSnapshot = await getDoc(doc(db, 'products', productId));
+    if (!productSnapshot.exists()) return false;
+    const product = productSnapshot.data();
+    const productPhone = product.vendorPhone || product.whatsapp || product.whatsappNumber || product.vendor?.whatsapp_number || '';
+    if (normalizePhone(productPhone) !== phone) return false;
+    await updateDoc(doc(db, 'products', productId), {
+      condition,
+      updatedAt: new Date().toISOString(),
+    });
+    return true;
+  }
+
   /**
    * Save auth OTP for WhatsApp login
    */
@@ -4709,6 +4733,7 @@ export class FirestoreService {
       status: 'INACTIVE',
       isVerified: false,
       verifiedStatus: 'REJECTED',
+      rejectionReason: reason || '',
       updatedAt: new Date().toISOString(),
     }));
     return true;
@@ -5102,6 +5127,3 @@ export class FirestoreService {
 }
 
 export const firestoreDb = new FirestoreService();
-
-
-
