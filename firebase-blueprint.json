@@ -1,240 +1,434 @@
 {
   "entities": {
-    "merchants": {
-      "title": "Merchants",
-      "description": "Registered business merchants with credit balances and listings",
+    "User": {
+      "title": "User",
+      "description": "Represents the merchant profile and account parameters.",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "businessName": { "type": "string" },
-        "whatsapp": { "type": "string" },
-        "userId": { "type": "string" },
-        "telegramId": { "type": "string" },
-        "claimDate": { "type": "string" },
-        "verifiedStatus": { "type": "string", "enum": ["YES", "PENDING"] },
-        "username": { "type": "string" },
-        "state": { "type": "string" },
-        "city": { "type": "string" },
-        "category": { "type": "string" },
-        "listingType": { "type": "string" },
-        "isVerified": { "type": "boolean" },
-        "credit_balance": { "type": "number" },
-        "referralCode": { "type": "string" },
-        "referredBy": { "type": "string" },
-        "referralsCount": { "type": "number" },
-        "referralCreditsEarned": { "type": "number" },
-        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] },
-        "updatedAt": { "type": "string" }
+        "name": {
+          "type": "string",
+          "description": "Full display name of the merchant."
+        },
+        "email": {
+          "type": "string",
+          "description": "Primary communication and login email."
+        },
+        "credits": {
+          "type": "number",
+          "description": "Active chasing wallet balance in Naira."
+        },
+        "subscriptionTier": {
+          "type": "string",
+          "enum": ["FREE", "HUSTLER", "MERCHANT"],
+          "description": "Active subscription plan of the merchant."
+        },
+        "escrowBalance": {
+          "type": "number",
+          "description": "Cleared escrow funds available for withdrawal."
+        },
+        "isBlacklisted": {
+          "type": "boolean",
+          "description": "Security flag preventing system actions."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Merchant phone number for text alert synchronization."
+        },
+        "realName": {
+          "type": "string",
+          "description": "Verified legal full name of the merchant."
+        },
+        "businessName": {
+          "type": "string",
+          "description": "SME operational trade name."
+        },
+        "businessCategory": {
+          "type": "string",
+          "description": "Commercial industry segment of the SME business."
+        },
+        "cacNumber": {
+          "type": "string",
+          "description": "Corporate Affairs Commission official legal registration number."
+        },
+        "businessAddress": {
+          "type": "string",
+          "description": "Physical registered office address of the business."
+        },
+        "onboardingCompleted": {
+          "type": "boolean",
+          "description": "Whether the merchant has finished the compliance onboarding process."
+        },
+        "creditScore": {
+          "type": "number",
+          "description": "Merchant credit risk rating out of 1000 computed from performance trackers."
+        },
+        "location": {
+          "type": "string",
+          "description": "Operational country or state location of the merchant."
+        },
+        "profession": {
+          "type": "string",
+          "description": "Professional occupation or primary focus of the merchant."
+        },
+        "referralSource": {
+          "type": "string",
+          "description": "Referral channel indicating where they found the application."
+        },
+        "paymentChallenge": {
+          "type": "string",
+          "description": "Primary pain point when collecting payments from clients."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the merchant account was created."
+        }
       },
-      "required": ["id", "businessName", "whatsapp", "credit_balance", "status"]
+      "required": ["name", "email", "credits", "subscriptionTier", "escrowBalance"]
     },
-    "user_sessions": {
-      "title": "User Sessions",
-      "description": "Multi-tenant session states for Telegram bot users",
+    "Debtor": {
+      "title": "Debtor",
+      "description": "Outstanding payment folder for a specific debtor client.",
       "type": "object",
       "properties": {
-        "userId": { "type": "string" },
-        "state": { "type": "string", "enum": ["IDLE_SEARCH", "QUALIFYING", "IN_SESSION"] },
-        "selectedMerchantId": { "type": "string" },
-        "selectedItem": { "type": "string" },
-        "deliveryLocation": { "type": "string" },
-        "activeSessionId": { "type": "string" },
-        "updatedAt": { "type": "string" }
+        "ownerId": {
+          "type": "string",
+          "description": "Auth UID of the owning merchant."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the debtor client."
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the debtor."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Telecom/SMS line of the debtor."
+        },
+        "amount": {
+          "type": "number",
+          "description": "Outstanding arrear amount."
+        },
+        "currency": {
+          "type": "string",
+          "description": "Currency of the trade (e.g. ₦)."
+        },
+        "receiptName": {
+          "type": "string",
+          "description": "Name of OCR doc waybill or handshake designation."
+        },
+        "receiptUrl": {
+          "type": "string",
+          "description": "Reference URL or placeholder for the uploaded invoice."
+        },
+        "remindStyle": {
+          "type": "string",
+          "enum": ["GENTLE", "AGGRESSIVE"],
+          "description": "Outreach style selected."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["DRAFT", "ACTIVE", "PAID"],
+          "description": "Current tracking status."
+        },
+        "remindersCount": {
+          "type": "number",
+          "description": "Number of dispatched reminder outreach attempts."
+        },
+        "lastRemindedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of the last reminder campaign."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the debt file was opened."
+        },
+        "merchantBusinessName": {
+          "type": "string",
+          "description": "SME Business name associated with this transaction."
+        },
+        "merchantLocation": {
+          "type": "string",
+          "description": "Physical operational location of the merchant."
+        },
+        "merchantEthnicity": {
+          "type": "string",
+          "description": "SME's local cultural dialect/demographics category."
+        },
+        "merchantWhatTheySell": {
+          "type": "string",
+          "description": "Commercial catalog item context."
+        },
+        "debtorLocation": {
+          "type": "string",
+          "description": "Operational residence/location of debtor."
+        },
+        "paymentDueDate": {
+          "type": "string",
+          "description": "Formulated or extracted raw payment deadline."
+        },
+        "isFreelancer": {
+          "type": "boolean",
+          "description": "Whether the merchant operates in freelance capacity."
+        },
+        "verificationStatus": {
+          "type": "string",
+          "enum": ["PENDING", "VERIFIED", "REJECTED", "DISPUTED"],
+          "description": "Verification compliance state."
+        },
+        "verificationOcrLog": {
+          "type": "string",
+          "description": "Compliance OCR raw text trace."
+        },
+        "isDisputed": {
+          "type": "boolean",
+          "description": "Claim dispute toggle state."
+        },
+        "disputeReason": {
+          "type": "string",
+          "description": "Argument provided by debtor."
+        },
+        "isMouthToMouth": {
+          "type": "boolean",
+          "description": "Verbal handshake agreement category."
+        },
+        "handshakeStatus": {
+          "type": "string",
+          "enum": ["PENDING_CONFIRMATION", "CONFIRMED", "DECLINED"],
+          "description": "Handshake trade authorization confirmation state."
+        }
       },
-      "required": ["userId", "state"]
+      "required": ["ownerId", "name", "email", "phone", "amount", "currency", "status", "createdAt"]
     },
-    "qualification_sessions": {
-      "title": "Qualification Sessions",
-      "description": "Active lead qualification firewall sessions",
+    "LogEntry": {
+      "title": "LogEntry",
+      "description": "A single communication event or status change logged for the debtor.",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "buyerId": { "type": "string" },
-        "buyerUsername": { "type": "string" },
-        "merchantId": { "type": "string" },
-        "merchantTelegramId": { "type": "string" },
-        "item": { "type": "string" },
-        "deliveryLocation": { "type": "string" },
-        "status": { "type": "string", "enum": ["PENDING_LOCATION", "PENDING_MERCHANT", "QUALIFIED", "EXPIRED", "CANCELLED"] },
-        "createdAt": { "type": "string" },
-        "updatedAt": { "type": "string" }
+        "type": {
+          "type": "string",
+          "enum": ["email", "sms", "call", "status_change"],
+          "description": "Communication channel or state event."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the log entry occurred."
+        },
+        "text": {
+          "type": "string",
+          "description": "Detail description of communication text or event."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["delivered", "failed", "read", "completed"],
+          "description": "Event processing result."
+        }
       },
-      "required": ["id", "buyerId", "merchantId", "status"]
+      "required": ["type", "timestamp", "text", "status"]
     },
-    "leads": {
-      "title": "Leads",
-      "description": "Qualified lead deliveries charged to merchant wallets",
+    "InvoiceLineItem": {
+      "title": "InvoiceLineItem",
+      "description": "A single item or service billed within an invoice.",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "ref": { "type": "string" },
-        "buyerId": { "type": "string" },
-        "merchantId": { "type": "string" },
-        "merchantName": { "type": "string" },
-        "item": { "type": "string" },
-        "location": { "type": "string" },
-        "cost": { "type": "number" },
-        "waLink": { "type": "string" },
-        "timestamp": { "type": "string" }
-      },
-      "required": ["id", "ref", "buyerId", "merchantId", "cost"]
-    },
-    "transactions": {
-      "title": "Transactions",
-      "description": "Credit deductions and wallet top-ups",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "merchantId": { "type": "string" },
-        "type": { "type": "string", "enum": ["TOPUP", "LEAD_DEDUCTION"] },
-        "amount": { "type": "number" },
         "description": { "type": "string" },
-        "reference": { "type": "string" },
-        "timestamp": { "type": "string" }
+        "quantity": { "type": "number" },
+        "unitPrice": { "type": "number" },
+        "total": { "type": "number" }
       },
-      "required": ["id", "merchantId", "type", "amount"]
+      "required": ["description", "quantity", "unitPrice", "total"]
     },
-    "search_logs": {
-      "title": "Search Logs",
-      "description": "Buyer search queries tracked for analytics and Google Sheets sync",
+    "Invoice": {
+      "title": "Invoice",
+      "description": "A professional invoice generated for freelancer or agency services.",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "buyerTelegramId": { "type": "string" },
-        "buyerName": { "type": "string" },
-        "searchedProduct": { "type": "string" },
-        "searchedPrice": { "type": "string" },
-        "searchedLocation": { "type": "string" },
-        "matchFound": { "type": "string", "enum": ["Yes", "No"] },
-        "numberOfMatches": { "type": "number" },
-        "timestamp": { "type": "string" }
-      },
-      "required": ["id", "buyerTelegramId", "searchedProduct", "timestamp"]
-    },
-    "products": {
-      "title": "Products",
-      "description": "Product and service inventory items linked to merchant businesses",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "merchantId": { "type": "string" },
-        "userId": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "issueDate": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["DRAFT", "SENT", "PAID", "OVERDUE"] },
+        "currency": { "type": "string" },
         "businessName": { "type": "string" },
-        "whatsapp": { "type": "string" },
-        "state": { "type": "string" },
-        "city": { "type": "string" },
-        "listingType": { "type": "string", "enum": ["Product", "Service"] },
+        "businessAddress": { "type": "string" },
+        "businessEmail": { "type": "string" },
+        "businessPhone": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "clientName": { "type": "string" },
+        "clientAddress": { "type": "string" },
+        "clientEmail": { "type": "string" },
+        "clientPhone": { "type": "string" },
+        "subtotal": { "type": "number" },
+        "taxRate": { "type": "number" },
+        "taxAmount": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "bankName": { "type": "string" },
+        "accountName": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "invoiceNumber",
+        "issueDate",
+        "dueDate",
+        "status",
+        "currency",
+        "businessName",
+        "clientName",
+        "subtotal",
+        "taxRate",
+        "taxAmount",
+        "totalAmount",
+        "createdAt"
+      ]
+    },
+    "WaitlistEntry": {
+      "title": "WaitlistEntry",
+      "description": "Represents an entry on the product's public launch waitlist.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "userType": { "type": "string" },
+        "debtCurrency": { "type": "string" },
+        "debtAmount": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "createdAt"]
+    },
+    "Business": {
+      "title": "Business",
+      "description": "Represents a verified SME merchant profile listed for discovery.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "businessName": { "type": "string" },
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
         "category": { "type": "string" },
+        "primaryCategory": { "type": "string" },
+        "location": { "type": "string" },
+        "market": { "type": "string" },
+        "marketShort": { "type": "string" },
+        "marketLocation": { "type": "string" },
+        "geoHubName": { "type": "string" },
+        "city": { "type": "string" },
+        "state": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "whatsappNumber": { "type": "string" },
+        "handle": { "type": "string" },
+        "avatarUrl": { "type": "string" },
         "product": { "type": "string" },
+        "bio": { "type": "string" },
+        "description": { "type": "string" },
+        "priceRange": { "type": "string" },
+        "verified": { "type": "boolean" },
+        "isVerified": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "fastResponder": { "type": "boolean" },
+        "rating": { "type": "number" },
+        "completedEscrows": { "type": "number" },
+        "safePayLevel": { "type": "string" },
+        "activeStatus": { "type": "string" },
+        "telegramBotUrl": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "businessName", "category", "location", "status", "verified"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Represents a merchant catalog product or service available for discovery and escrow checkout.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "product": { "type": "string" },
+        "slug": { "type": "string" },
         "price": { "type": "string" },
         "numericPrice": { "type": "number" },
-        "negotiation": { "type": "string", "enum": ["Yes", "No"] },
-        "quantity": { "type": "number" },
-        "specs": { "type": "string" },
-        "photoUrl": { "type": "string" },
-        "visualTags": { "type": "array", "items": { "type": "string" } },
-        "ocrText": { "type": "string" },
-        "updatedAt": { "type": "string" }
-      },
-      "required": ["id", "merchantId", "businessName", "product", "price"]
-    },
-    "restock_alerts": {
-      "title": "Restock Alerts",
-      "description": "Broadcast Lead Radar alerts sent to buyers when inventory is added or restocked",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "productId": { "type": "string" },
-        "productName": { "type": "string" },
+        "originalPrice": { "type": "number" },
+        "category": { "type": "string" },
+        "city": { "type": "string" },
+        "state": { "type": "string" },
+        "marketHub": { "type": "string" },
+        "businessName": { "type": "string" },
+        "seller": { "type": "string" },
+        "merchantSlug": { "type": "string" },
         "merchantId": { "type": "string" },
-        "merchantName": { "type": "string" },
-        "buyerTelegramId": { "type": "string" },
-        "buyerName": { "type": "string" },
-        "status": { "type": "string", "enum": ["SENT", "PENDING"] },
-        "timestamp": { "type": "string" }
-      },
-      "required": ["id", "productId", "merchantId", "buyerTelegramId", "timestamp"]
-    },
-    "referrals": {
-      "title": "Referrals",
-      "description": "User and merchant referrals tracking invites, rewards, and status",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "referrerPhone": { "type": "string" },
-        "referrerCode": { "type": "string" },
-        "referrerName": { "type": "string" },
-        "referredPhone": { "type": "string" },
-        "referredBusinessName": { "type": "string" },
-        "rewardCredits": { "type": "number" },
-        "bonusGivenToNewUser": { "type": "number" },
-        "type": { "type": "string", "enum": ["BUSINESS_REGISTRATION", "BUYER_INVITE"] },
-        "status": { "type": "string", "enum": ["PENDING", "COMPLETED"] },
-        "createdAt": { "type": "string" },
-        "completedAt": { "type": "string" }
-      },
-      "required": ["id", "referrerPhone", "referredPhone", "status", "createdAt"]
-    },
-    "ads": {
-      "title": "Ads",
-      "description": "Merchant and brand banner advertisements with telemetry and design workflow",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "merchantPhone": { "type": "string" },
-        "merchantName": { "type": "string" },
-        "adType": { "type": "string", "enum": ["BUSINESS_AD", "PRODUCT_AD", "SALES_AD", "BRAND_SPONSOR"] },
-        "headline": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "condition": { "type": "string" },
+        "specs": { "type": "string" },
         "description": { "type": "string" },
-        "offerText": { "type": "string" },
-        "rawImageUrl": { "type": "string" },
-        "designedBannerUrl": { "type": "string" },
-        "targetUrl": { "type": "string" },
-        "targetCategory": { "type": "string" },
-        "targetLocation": { "type": "string" },
-        "status": { "type": "string", "enum": ["PENDING_DESIGN", "ACTIVE", "PAUSED", "EXPIRED"] },
-        "impressions": { "type": "number" },
-        "clicks": { "type": "number" },
-        "budget": { "type": "number" },
-        "submittedVia": { "type": "string" },
-        "createdAt": { "type": "string" },
-        "approvedAt": { "type": "string" },
-        "updatedAt": { "type": "string" }
+        "imageUrl": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "isBoosted": { "type": "boolean" },
+        "boostScore": { "type": "number" },
+        "stockCount": { "type": "number" },
+        "warranty": { "type": "string" },
+        "createdAt": { "type": "string" }
       },
-      "required": ["id", "headline", "status", "createdAt"]
+      "required": ["id", "title", "numericPrice", "category", "businessName", "merchantSlug"]
     },
-    "auth_otps": {
-      "title": "Authentication OTPs",
-      "description": "WhatsApp-based 4-digit verification codes for merchant login and onboarding",
+    "Stats": {
+      "title": "Stats",
+      "description": "Global statistics and social proof metrics.",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "phone": { "type": "string" },
-        "otp": { "type": "string" },
-        "attempts": { "type": "number" },
-        "createdAt": { "type": "string" },
-        "expiresAt": { "type": "string" }
+        "totalUsersLinked": {
+          "type": "number",
+          "description": "Cumulative total of users linked to local merchants via search."
+        },
+        "lastUpdated": {
+          "type": "string",
+          "description": "ISO timestamp of last metric update."
+        }
       },
-      "required": ["id", "phone", "otp", "expiresAt"]
+      "required": ["totalUsersLinked"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Stores credentials, settings, subscriber tiers and escrow clearance parameters for merchants."
     },
-    "auth_sessions": {
-      "title": "WhatsApp One-Click Auth Sessions",
-      "description": "Challenge codes and JWT web sessions for passwordless WhatsApp login",
-      "type": "object",
-      "properties": {
-        "challengeCode": { "type": "string" },
-        "phone": { "type": "string" },
-        "canonicalPhone": { "type": "string" },
-        "status": { "type": "string", "enum": ["PENDING", "VERIFIED", "EXPIRED"] },
-        "jwt": { "type": "string" },
-        "refreshToken": { "type": "string" },
-        "ip": { "type": "string" },
-        "createdAt": { "type": "string" },
-        "expiresAt": { "type": "string" },
-        "verifiedAt": { "type": "string" },
-        "verifiedPhone": { "type": "string" }
-      },
-      "required": ["challengeCode", "phone", "status", "createdAt", "expiresAt"]
+    "/debtors/{debtorId}": {
+      "schema": "Debtor",
+      "description": "Core payment folders managed by standard merchants."
+    },
+    "/debtors/{debtorId}/history/{logId}": {
+      "schema": "LogEntry",
+      "description": "Rich telemetry log streams documenting system emails, robocalls and SMS pings."
+    },
+    "/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "Collection storing professional agency and freelancer invoices."
+    },
+    "/waitlist/{entryId}": {
+      "schema": "WaitlistEntry",
+      "description": "Collection storing waitlist requests from prospective merchants."
+    },
+    "/businesses/{businessId}": {
+      "schema": "Business",
+      "description": "Collection storing verified active local SME business profiles."
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Collection storing verified merchant products and services catalog."
+    },
+    "/stats/{statId}": {
+      "schema": "Stats",
+      "description": "Global system counters and social proof metrics."
     }
   }
 }

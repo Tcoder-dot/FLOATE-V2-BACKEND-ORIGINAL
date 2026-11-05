@@ -1,6 +1,6 @@
 {
-  "name": "Telegram Bot Logic",
-  "description": "Backend logic, Super Admin Analytics suite, WhatsApp & Telegram bot engines, Flutterwave SafePay & Pay on Delivery escrow, and conversational AI routing for Floate",
-  "requestFramePermissions": ["camera", "microphone", "geolocation"],
+  "name": "FLOATE",
+  "description": "Market search engine and verified vendor purchasing for Africa's informal economy. Direct catalog indexing across Computer Village, Onitsha Main Market, Alaba, and Aba.",
+  "requestFramePermissions": ["microphone", "geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

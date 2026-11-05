@@ -1,15 +1,188 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // KYC Verification records and Payout transactions should be protected
-    match /kyc_verifications/{docId} {
-      allow read, write: if true; // Managed securely by server backend
-    }
-    match /payout_transactions/{docId} {
-      allow read, write: if true; // Managed securely by server backend
-    }
+
+    // Global Deny-by-Default Fallback
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
+    }
+
+    // 0. Test connectivity health check matching boundary
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Primitive Global Verification Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-.@]+$');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // User Model Schema Validation
+    function isValidUser(data) {
+      return data.name is string && data.name.size() <= 200
+        && data.email is string && data.email.size() <= 200
+        && data.credits is number && data.credits >= 0
+        && data.subscriptionTier is string && (data.subscriptionTier == 'FREE' || data.subscriptionTier == 'HUSTLER' || data.subscriptionTier == 'MERCHANT')
+        && data.escrowBalance is number && data.escrowBalance >= 0
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 50))
+        && (!('realName' in data) || (data.realName is string && data.realName.size() <= 200))
+        && (!('businessName' in data) || (data.businessName is string && data.businessName.size() <= 250))
+        && (!('businessCategory' in data) || (data.businessCategory is string && data.businessCategory.size() <= 200))
+        && (!('cacNumber' in data) || (data.cacNumber is string && data.cacNumber.size() <= 100))
+        && (!('businessAddress' in data) || (data.businessAddress is string && data.businessAddress.size() <= 500))
+        && (!('onboardingCompleted' in data) || data.onboardingCompleted is bool)
+        && (!('creditScore' in data) || (data.creditScore is number && data.creditScore >= 0))
+        && (!('location' in data) || (data.location is string && data.location.size() <= 200))
+        && (!('profession' in data) || (data.profession is string && data.profession.size() <= 200))
+        && (!('referralSource' in data) || (data.referralSource is string && data.referralSource.size() <= 200))
+        && (!('paymentChallenge' in data) || (data.paymentChallenge is string && data.paymentChallenge.size() <= 500));
+    }
+
+    // Debtor Model Schema Validation
+    function isValidDebtor(data) {
+      return data.ownerId == request.auth.uid
+        && data.name is string && data.name.size() <= 200
+        && data.email is string && data.email.size() <= 200
+        && data.phone is string && data.phone.size() <= 50
+        && data.amount is number && data.amount >= 0
+        && data.currency is string && data.currency.size() <= 10
+        && data.status is string && (data.status == 'DRAFT' || data.status == 'ACTIVE' || data.status == 'PAID' || data.status == 'PAUSED' || data.status == 'DEFAULTED')
+        && (!('isBlacklisted' in data) || data.isBlacklisted is bool)
+        && (!('isMouthToMouth' in data) || data.isMouthToMouth is bool)
+        && (!('isFreelancer' in data) || data.isFreelancer is bool)
+        && (!('isDisputed' in data) || data.isDisputed is bool);
+    }
+
+    // History Log Entry Schema Validation
+    function isValidLog(data) {
+      return data.type is string && (data.type == 'email' || data.type == 'sms' || data.type == 'call' || data.type == 'status_change')
+        && data.timestamp is string && data.timestamp.size() <= 150
+        && data.text is string && data.text.size() <= 5000
+        && data.status is string && (data.status == 'delivered' || data.status == 'failed' || data.status == 'read' || data.status == 'completed');
+    }
+
+    // Invoice Model Schema Validation
+    function isValidInvoice(data) {
+      return data.ownerId == request.auth.uid
+        && data.invoiceNumber is string && data.invoiceNumber.size() <= 100
+        && data.issueDate is string && data.issueDate.size() <= 100
+        && data.dueDate is string && data.dueDate.size() <= 100
+        && data.status is string && (data.status == 'DRAFT' || data.status == 'SENT' || data.status == 'PAID' || data.status == 'OVERDUE')
+        && data.currency is string && data.currency.size() <= 10
+        && data.businessName is string && data.businessName.size() <= 250
+        && data.clientName is string && data.clientName.size() <= 200
+        && data.subtotal is number && data.subtotal >= 0
+        && data.taxRate is number && data.taxRate >= 0
+        && data.taxAmount is number && data.taxAmount >= 0
+        && data.totalAmount is number && data.totalAmount >= 0;
+    }
+
+    function isValidWaitlistEntry(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 300
+        && data.email is string && data.email.size() <= 300
+        && data.createdAt is string && data.createdAt.size() <= 100;
+    }
+
+    // 1. Users profile collection
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data);
+      allow delete: if false; // Profile structures are permanent and can never be orphaned
+    }
+
+    // 2. Debtors tracking collections
+    match /debtors/{debtorId} {
+      allow get: if isSignedIn() && isValidId(debtorId) && resource.data.ownerId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid; // Secure Query Enforcer
+      
+      allow create: if isSignedIn() && isValidId(debtorId) 
+        && request.resource.data.ownerId == request.auth.uid 
+        && isValidDebtor(request.resource.data);
+        
+      allow update: if isSignedIn() && isValidId(debtorId) 
+        && resource.data.ownerId == request.auth.uid 
+        && request.resource.data.ownerId == request.auth.uid 
+        && isValidDebtor(request.resource.data);
+        
+      allow delete: if isSignedIn() && isValidId(debtorId) 
+        && resource.data.ownerId == request.auth.uid;
+    }
+
+    // 3. Nested logs sub-collection
+    match /debtors/{debtorId}/history/{logId} {
+      allow get: if isSignedIn() && isValidId(debtorId) && isValidId(logId)
+        && get(/databases/$(database)/documents/debtors/$(debtorId)).data.ownerId == request.auth.uid;
+        
+      allow list: if isSignedIn() && isValidId(debtorId)
+        && get(/databases/$(database)/documents/debtors/$(debtorId)).data.ownerId == request.auth.uid;
+        
+      allow create: if isSignedIn() && isValidId(debtorId) && isValidId(logId)
+        && get(/databases/$(database)/documents/debtors/$(debtorId)).data.ownerId == request.auth.uid
+        && isValidLog(request.resource.data);
+        
+      allow update: if false; // Audit logs remain an immutable permanent trail
+      allow delete: if false; // Audit logs remain an immutable permanent trail
+    }
+
+    // 4. Invoices collection
+    match /invoices/{invoiceId} {
+      allow get: if isSignedIn() && isValidId(invoiceId) && resource.data.ownerId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid; // Secure Query Enforcer
+      
+      allow create: if isSignedIn() && isValidId(invoiceId) 
+        && request.resource.data.ownerId == request.auth.uid 
+        && isValidInvoice(request.resource.data);
+        
+      allow update: if isSignedIn() && isValidId(invoiceId) 
+        && resource.data.ownerId == request.auth.uid 
+        && request.resource.data.ownerId == request.auth.uid 
+        && isValidInvoice(request.resource.data);
+        
+      allow delete: if isSignedIn() && isValidId(invoiceId) 
+        && resource.data.ownerId == request.auth.uid;
+    }
+
+    // 5. Public Waitlist collection
+    match /waitlist/{entryId} {
+      allow read, update, delete: if false;
+      allow create: if true;
+    }
+
+    // 6. Public Businesses Directory collection
+    match /businesses/{businessId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if isSignedIn();
+    }
+
+    // 7. Products and Services Catalog collection
+    match /products/{productId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if isSignedIn();
+    }
+
+    // 8. Global Public Stats collection (Search & Linked Users Counter)
+    match /stats/{statId} {
+      allow read: if true;
+      allow create, update: if true;
+    }
+
+    // 9. Merchant KYC Verification Requests
+    match /verifications/{verificationId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if isSignedIn();
     }
   }
 }
