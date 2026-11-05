@@ -1,0 +1,275 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500;1,600;1,700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Plus Jakarta Sans", monospace;
+
+  /* OFFICIAL FLOATE BRAND TOKENS (v2) */
+  --color-floate-green: #1B5E20;
+  --color-floate-green-deep: #123F16;
+  --color-floate-green-light: #2E7D32;
+  --color-floate-yellow: #FFC107;
+  --color-floate-yellow-tint: rgba(255, 193, 7, 0.14);
+  --color-floate-yellow-border: rgba(255, 193, 7, 0.50);
+
+  /* Light Surfaces */
+  --color-surface-cream: #FFF8E1;
+  --color-surface-paper: #F7F7F2;
+  --color-surface-white: #FFFFFF;
+  --color-mint-50: #E8F5E9;
+  --color-mint-100: #C8E6C9;
+
+  /* Typography */
+  --color-text-on-green: #FFFFFF;
+  --color-text-on-green-body: #E3F0E3;
+  --color-text-on-green-muted: #CFE3CF;
+  --color-text-on-green-subtle: #B9D6B9;
+  --color-nav-on-green: #D9EAD9;
+  --color-text-strong: #111111;
+  --color-text-body: #555555;
+  --color-text-muted: #666666;
+
+  /* Borders & Lines */
+  --color-border-light: #E5E5E5;
+  --color-border-on-green: rgba(255, 255, 255, 0.16);
+  --color-divider-on-green: rgba(255, 255, 255, 0.18);
+
+  /* Status & Live */
+  --color-live-dot: #7CFC8A;
+  --color-live-dot-ring: rgba(124, 252, 138, 0.25);
+  --color-whatsapp: #25D366;
+
+  /* Backward Compatibility Aliases */
+  --color-primary-emerald: #1B5E20;
+  --color-emerald-deep: #123F16;
+  --color-emerald-light: #2E7D32;
+  --color-mint: #1B5E20;
+  --color-mint-soft: #E8F5E9;
+  --color-warm-cream: #FFF8E1;
+  --color-warm-sand: #F7F7F2;
+  --color-amber-gold: #FFC107;
+  --color-amber-soft: #FFF8E1;
+  --color-white: #FFFFFF;
+  --color-ink: #111111;
+  --color-muted: #666666;
+  --color-border-subtle: rgba(27, 94, 32, 0.12);
+
+  --shadow-floate-card: 0 10px 30px rgba(18, 63, 22, 0.08);
+  --radius-floate-card: 24px;
+  --radius-pill: 999px;
+}
+
+:root {
+  color-scheme: light;
+
+  /* Official Tokens in :root */
+  --floate-green: #1B5E20;
+  --floate-green-deep: #123F16;
+  --floate-green-light: #2E7D32;
+  --floate-yellow: #FFC107;
+  --floate-yellow-tint: rgba(255, 193, 7, 0.14);
+  --floate-yellow-border: rgba(255, 193, 7, 0.50);
+
+  --surface-cream: #FFF8E1;
+  --surface-paper: #F7F7F2;
+  --surface-white: #FFFFFF;
+  --mint-50: #E8F5E9;
+  --mint-100: #C8E6C9;
+
+  --text-on-green: #FFFFFF;
+  --text-on-green-body: #E3F0E3;
+  --text-on-green-muted: #CFE3CF;
+  --text-on-green-subtle: #B9D6B9;
+  --nav-on-green: #D9EAD9;
+  --text-strong: #111111;
+  --text-body: #555555;
+  --text-muted: #666666;
+
+  --border-light: #E5E5E5;
+  --border-on-green: rgba(255, 255, 255, 0.16);
+  --divider-on-green: rgba(255, 255, 255, 0.18);
+
+  --live-dot: #7CFC8A;
+  --live-dot-ring: rgba(124, 252, 138, 0.25);
+  --whatsapp: #25D366;
+
+  background-color: var(--surface-paper, #F7F7F2);
+  color: var(--text-strong, #111111);
+  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: -0.015em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--surface-paper, #F7F7F2);
+  color: var(--text-strong, #111111);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Tabular numbers for price scanning */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* SIGNATURE BACKGROUND RECIPES */
+.hero-green-gradient {
+  background-color: #1B5E20;
+  background-image: radial-gradient(circle at 85% 15%, #2E7D32 0%, #1B5E20 45%, #123F16 100%);
+}
+
+.storefront-cover-gradient {
+  background: linear-gradient(135deg, #1B5E20 0%, #2E7D32 100%);
+}
+
+.product-placeholder-gradient {
+  background: linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%);
+}
+
+.footer-green {
+  background-color: #123F16;
+}
+
+/* Floate Brand Gradients & Shadows */
+.bg-floate-emerald {
+  background-color: #1B5E20;
+}
+
+.bg-floate-gradient {
+  background: linear-gradient(135deg, #1B5E20 0%, #123F16 100%);
+}
+
+.bg-hero-gradient {
+  background-color: #1B5E20;
+  background-image: radial-gradient(circle at 85% 15%, #2E7D32 0%, #1B5E20 45%, #123F16 100%);
+}
+
+.shadow-floate-card {
+  box-shadow: 0 10px 30px rgba(18, 63, 22, 0.08);
+}
+
+.border-floate-subtle {
+  border: 1px solid rgba(27, 94, 32, 0.12);
+}
+
+/* Story Ring with Floate Brand Gradient */
+.story-ring-gradient {
+  background: linear-gradient(135deg, #FFC107 0%, #2E7D32 50%, #1B5E20 100%);
+  padding: 2.5px;
+}
+
+/* Focus Rings - Clean & subtle, no yellow/orange ring */
+button:focus-visible, a:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+*:focus-visible {
+  outline: none !important;
+}
+
+input, input:focus, input:focus-visible, textarea:focus, form:focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+button:active {
+  transform: scale(0.985);
+  transition: transform 120ms ease;
+}
+
+/* Custom scrollbar utility */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+.animate-float-slow {
+  animation: float-slow 4s ease-in-out infinite;
+}
+
+.animate-float-delayed {
+  animation: float-slow 4.5s ease-in-out infinite 1.5s;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+/* Continuous Auto-Scrolling Marquee */
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes marquee-reverse {
+  0% { transform: translateX(-50%); }
+  100% { transform: translateX(0%); }
+}
+
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: marquee 40s linear infinite;
+}
+
+.animate-marquee-reverse {
+  display: flex;
+  width: max-content;
+  animation: marquee-reverse 45s linear infinite;
+}
+
+.animate-marquee:hover,
+.animate-marquee-reverse:hover {
+  animation-play-state: paused;
+}
+
+/* App-Wide Smooth Entry & Scroll Arrange Animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes arrangeIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-arrange-in {
+  animation: arrangeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
