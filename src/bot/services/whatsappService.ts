@@ -929,7 +929,7 @@ export function handleWhatsAppVerification(req: express.Request, res: express.Re
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-  const expectedToken = process.env.WHATSAPP_VERIFY_TOKEN || config.whatsappVerifyToken || 'floate_wa_verify_token_2026';
+  const expectedToken = process.env.WHATSAPP_VERIFY_TOKEN || config.whatsappVerifyToken;
 
   if (mode === 'subscribe' && token === expectedToken) {
     console.log(`[WhatsApp Webhook Verification] ✅ Verification challenge PASSED.`);

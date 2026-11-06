@@ -8,7 +8,7 @@ import { whatsappAuthService } from './whatsappAuthService.js';
 import { matchCoordinatesToNigerianMarket } from './marketGeoService.js';
 import {
   parseShoppingQuery,
-  transcribeAudioWithWhisper,
+  transcribeAndAnalyzeAudio,
   validateSelfieWithGeminiVision,
   verifyNinDocumentWithGeminiVision,
   verifyLivenessVideoWithGemini,
@@ -929,7 +929,7 @@ export function handleWhatsAppVerification(req: express.Request, res: express.Re
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-  const expectedToken = process.env.WHATSAPP_VERIFY_TOKEN || config.whatsappVerifyToken || 'floate_wa_verify_token_2026';
+  const expectedToken = process.env.WHATSAPP_VERIFY_TOKEN || config.whatsappVerifyToken;
 
   if (mode === 'subscribe' && token === expectedToken) {
     console.log(`[WhatsApp Webhook Verification] ✅ Verification challenge PASSED.`);
@@ -4306,7 +4306,15 @@ export async function processMasterWhatsAppEngine(params: {
     const media = await downloadWhatsAppMedia(params.audioId);
     if (media) {
       try {
-        text = await transcribeAudioWithWhisper(media.buffer, media.mimeType || params.audioMimeType || 'audio/ogg');
+        if (!(process.env.GEMINI_API_KEY || config.geminiApiKey)) {
+          throw new Error('GEMINI_API_KEY is not configured');
+        }
+        const transcription = await transcribeAndAnalyzeAudio(
+          media.buffer,
+          media.mimeType || params.audioMimeType || 'audio/ogg'
+        );
+        text = transcription.transcript.trim();
+        if (!text) throw new Error(transcription.analysis || 'Gemini returned an empty transcript');
         console.log(`[WhatsApp Voice Note] ✅ Transcription complete (${text.length} characters).`);
       } catch (err) {
         console.warn('[Voice Transcribe Error]:', err);

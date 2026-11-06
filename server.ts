@@ -1,13 +1,14 @@
 import express from "express";
 import path from "path";
 import { readFile } from "node:fs/promises";
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import { generateSitemapXML, generateRobotsTxt } from "./src/utils/sitemap";
 import searchRouter from "./routes/search";
 import v1Router, { getAllProducts } from "./routes/v1";
+import { handleWhatsAppVerification, handleWhatsAppWebhook } from "./bot/services/whatsappService";
 import { initializeMeilisearchIndexes } from "./config/meilisearch";
 import { extractCategoryIntent, normalizeFloateCategory } from "./services/intentExtractor";
 import { ANCHOR_BUSINESSES } from "./controllers/searchController";
@@ -25,6 +26,29 @@ const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : get
 export const firestoreDb = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
 
 const app = express();
+const verifyWhatsAppWebhookSignature: express.RequestHandler = (req, res, next) => {
+  const appSecret = process.env.WHATSAPP_APP_SECRET;
+  const signature = req.get("x-hub-signature-256") || "";
+  const [algorithm, digest] = signature.split("=", 2);
+  const rawBody = (req as express.Request & { rawBody?: Buffer }).rawBody;
+
+  if (!appSecret) {
+    console.error("[WhatsApp Webhook] WHATSAPP_APP_SECRET is not configured.");
+    return res.status(503).send("WhatsApp webhook signature verification is not configured.");
+  }
+
+  if (!rawBody || algorithm !== "sha256" || !digest || !/^[a-f0-9]{64}$/i.test(digest)) {
+    return res.status(401).send("Invalid WhatsApp webhook signature.");
+  }
+
+  const expected = createHmac("sha256", appSecret).update(rawBody).digest();
+  const provided = Buffer.from(digest, "hex");
+  if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
+    return res.status(401).send("Invalid WhatsApp webhook signature.");
+  }
+
+  next();
+};
 const requireAdminApiKey: express.RequestHandler = (req, res, next) => {
   const expectedKey = process.env.ADMIN_API_KEY || "";
   const providedKey = req.get("x-admin-api-key") || "";
@@ -37,8 +61,17 @@ const requireAdminApiKey: express.RequestHandler = (req, res, next) => {
   }
   next();
 };
-app.use(express.json({ limit: '15mb' }));
+app.use(express.json({
+  limit: '15mb',
+  verify: (req, _res, buffer) => {
+    if (req.url?.startsWith('/api/v1/webhooks/whatsapp')) {
+      (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+    }
+  },
+}));
 app.use(express.urlencoded({ limit: '15mb', extended: true }));
+app.get("/api/v1/webhooks/whatsapp", handleWhatsAppVerification);
+app.post("/api/v1/webhooks/whatsapp", verifyWhatsAppWebhookSignature, handleWhatsAppWebhook);
 app.use(v1Router);
 app.use(searchRouter);
 

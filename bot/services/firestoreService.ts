@@ -953,7 +953,6 @@ export class FirestoreService {
             isVerified: matchingListing.isVerified === true || matchingListing.verifiedStatus === 'YES',
             verifiedStatus: matchingListing.isVerified === true || matchingListing.verifiedStatus === 'YES' ? 'YES' : 'PENDING',
             verificationStatus: matchingListing.isVerified === true || matchingListing.verifiedStatus === 'YES' ? 'APPROVED' : 'PENDING_REVIEW',
-            status: matchingListing.isVerified === true || matchingListing.verifiedStatus === 'YES' ? 'ACTIVE' : 'PENDING_REVIEW',
             credit_balance: startingCredits,
             status: 'ACTIVE',
             updatedAt: new Date().toISOString(),
